@@ -77,6 +77,25 @@ h1 {
   color: var(--muted);
 }
 
+.mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 12px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.42);
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.mode-toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;

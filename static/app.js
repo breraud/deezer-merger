@@ -1,6 +1,7 @@
 const statusMessage = document.querySelector("#status-message");
 const mixCount = document.querySelector("#mix-count");
 const mixList = document.querySelector("#mix-list");
+const balancedToggle = document.querySelector("#balanced-toggle");
 const playerLists = {
   player1: document.querySelector("#player1-list"),
   player2: document.querySelector("#player2-list"),
@@ -58,6 +59,14 @@ function renderState(payload) {
   });
 }
 
+function buildActionUrl(path, includeBalanced = false) {
+  const url = new URL(path, window.location.origin);
+  if (includeBalanced) {
+    url.searchParams.set("balanced", String(balancedToggle.checked));
+  }
+  return `${url.pathname}${url.search}`;
+}
+
 async function callApi(path, options = {}) {
   const response = await fetch(path, {
     method: options.method || "GET",
@@ -100,7 +109,11 @@ async function triggerAction(path, pendingMessage, successMessage) {
 }
 
 document.querySelector("#generate-button").addEventListener("click", () => {
-  triggerAction("/api/generate", "Generation du mix et mise a jour Deezer...", "Mix global regenere.");
+  triggerAction(
+    buildActionUrl("/api/generate", true),
+    "Generation du mix et mise a jour Deezer...",
+    "Mix global regenere.",
+  );
 });
 
 document.querySelector("#reset-button").addEventListener("click", () => {
@@ -112,7 +125,7 @@ document.querySelectorAll("[data-player]").forEach((button) => {
     const playerId = button.dataset.player;
     const playerLabel = playerId.replace("player", "Joueur ");
     triggerAction(
-      `/api/refresh/${playerId}`,
+      buildActionUrl(`/api/refresh/${playerId}`, true),
       `Rafraichissement de ${playerLabel} et synchronisation Deezer...`,
       `${playerLabel} rafraichi avec succes.`,
     );

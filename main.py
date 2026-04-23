@@ -112,18 +112,22 @@ class MixManager:
         await self.load_source_pools(force=True)
         return await self.get_status()
 
-    async def generate_mix(self) -> dict[str, Any]:
+    async def generate_mix(self, balanced: bool = False) -> dict[str, Any]:
         source_pools = await self.load_source_pools(force=False)
-        selections = self._build_initial_selections(source_pools)
+        selections = self._build_selections(source_pools, balanced=balanced)
         return await self._publish_mix(selections)
 
-    async def refresh_player(self, player_id: str) -> dict[str, Any]:
+    async def refresh_player(self, player_id: str, balanced: bool = False) -> dict[str, Any]:
         if player_id not in PLAYER_IDS:
             raise ValueError(f"Unknown player_id: {player_id}")
 
         source_pools = await self.load_source_pools(force=False)
+        if not balanced:
+            selections = self._build_selections(source_pools, balanced=False)
+            return await self._publish_mix(selections)
+
         if not any(self.state["players"].values()):
-            selections = self._build_initial_selections(source_pools)
+            selections = self._build_selections(source_pools, balanced=True)
             return await self._publish_mix(selections)
 
         selections = {
@@ -131,22 +135,21 @@ class MixManager:
             for key, value in self.state["players"].items()
         }
 
-        locked_tracks = {
-            track_id
-            for current_player, track_ids in selections.items()
-            if current_player != player_id
-            for track_id in track_ids
-        }
-        desired_count = max(
-            len(selections.get(player_id, [])),
-            min(self.tracks_per_player, len(source_pools[player_id])),
-        )
+        desired_count = self._get_balanced_count(source_pools)
+        if desired_count <= 0:
+            selections[player_id] = []
+            return await self._publish_mix(selections)
+
+        current_selection = selections.get(player_id, [])
         available_tracks = [
             track_id
             for track_id in source_pools[player_id]
-            if track_id not in locked_tracks and track_id not in selections.get(player_id, [])
+            if track_id not in current_selection
         ]
-        selections[player_id] = available_tracks[:desired_count]
+        if len(available_tracks) < desired_count:
+            available_tracks = list(source_pools[player_id])
+
+        selections[player_id] = self.randomizer.sample(available_tracks, desired_count)
         return await self._publish_mix(selections)
 
     async def get_status(self) -> dict[str, Any]:
@@ -156,21 +159,27 @@ class MixManager:
             "mix": self.state["mix"],
         }
 
-    def _build_initial_selections(self, source_pools: dict[str, list[str]]) -> dict[str, list[str]]:
-        used_tracks: set[str] = set()
-        selections: dict[str, list[str]] = {}
+    def _build_selections(
+        self,
+        source_pools: dict[str, list[str]],
+        balanced: bool,
+    ) -> dict[str, list[str]]:
+        if not balanced:
+            return {
+                player_id: list(source_pools[player_id])
+                for player_id in PLAYER_IDS
+            }
 
-        for player_id in PLAYER_IDS:
-            available_tracks = [
-                track_id
-                for track_id in source_pools[player_id]
-                if track_id not in used_tracks
-            ]
-            selection = available_tracks[: self.tracks_per_player]
-            selections[player_id] = selection
-            used_tracks.update(selection)
+        desired_count = self._get_balanced_count(source_pools)
+        return {
+            player_id: self.randomizer.sample(source_pools[player_id], desired_count)
+            if desired_count > 0 else []
+            for player_id in PLAYER_IDS
+        }
 
-        return selections
+    def _get_balanced_count(self, source_pools: dict[str, list[str]]) -> int:
+        lengths = [len(source_pools[player_id]) for player_id in PLAYER_IDS]
+        return min(lengths) if lengths else 0
 
     async def _publish_mix(self, selections: dict[str, list[str]]) -> dict[str, Any]:
         mixed_tracks = [
@@ -216,9 +225,9 @@ def create_app(manager: MixManager | Any | None = None):
         return await app.state.manager.get_status()
 
     @app.post("/api/generate")
-    async def generate_mix() -> dict[str, Any]:
+    async def generate_mix(balanced: bool = False) -> dict[str, Any]:
         try:
-            return await app.state.manager.generate_mix()
+            return await app.state.manager.generate_mix(balanced=balanced)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:  # pragma: no cover - external service errors
@@ -226,9 +235,9 @@ def create_app(manager: MixManager | Any | None = None):
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     @app.post("/api/refresh/{player_id}")
-    async def refresh_player(player_id: str) -> dict[str, Any]:
+    async def refresh_player(player_id: str, balanced: bool = False) -> dict[str, Any]:
         try:
-            return await app.state.manager.refresh_player(player_id)
+            return await app.state.manager.refresh_player(player_id, balanced=balanced)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:  # pragma: no cover - external service errors
