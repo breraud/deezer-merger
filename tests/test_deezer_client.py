@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 
 class DeezerClientTests(unittest.IsolatedAsyncioTestCase):
-    async def test_get_playlist_tracks_extracts_name_and_track_ids_across_pages(self) -> None:
+    async def test_get_playlist_tracks_extracts_name_and_track_metadata_across_pages(self) -> None:
         from deezer_client import DeezerClient
 
         client = AsyncMock()
@@ -12,8 +12,8 @@ class DeezerClientTests(unittest.IsolatedAsyncioTestCase):
                 "title": "Road Trip",
                 "tracks": {
                     "edges": [
-                        {"cursor": "c1", "node": {"id": "11"}},
-                        {"cursor": "c2", "node": {"id": 22}},
+                        {"cursor": "c1", "node": {"id": "11", "title": "Get Lucky", "contributors": {"edges": [{"node": {"name": "Daft Punk"}}]}}},
+                        {"cursor": "c2", "node": {"id": 22, "title": "Harder Better Faster Stronger", "contributors": {"edges": [{"node": {"name": "Daft Punk"}}]}}},
                     ],
                     "pageInfo": {"hasNextPage": True, "endCursor": "c2"},
                 }
@@ -22,8 +22,8 @@ class DeezerClientTests(unittest.IsolatedAsyncioTestCase):
                 "title": "Road Trip",
                 "tracks": {
                     "edges": [
-                        {"cursor": "c3", "node": {"SNG_ID": "33"}},
-                        {"cursor": "c4", "node": {"id": "44"}},
+                        {"cursor": "c3", "node": {"SNG_ID": "33", "title": "One More Time", "contributors": {"edges": [{"node": {"name": "Daft Punk"}}]}}},
+                        {"cursor": "c4", "node": {"id": "44", "title": "Around the World", "contributors": {"edges": [{"node": {"name": "Daft Punk"}}]}}},
                     ],
                     "pageInfo": {"hasNextPage": False, "endCursor": "c4"},
                 }
@@ -35,7 +35,15 @@ class DeezerClientTests(unittest.IsolatedAsyncioTestCase):
         playlist_data = await service.get_playlist_tracks("123")
 
         self.assertEqual(playlist_data["name"], "Road Trip")
-        self.assertEqual(playlist_data["track_ids"], ["11", "22", "33", "44"])
+        self.assertEqual(
+            playlist_data["tracks"],
+            [
+                {"id": "11", "title": "Get Lucky", "artist": "Daft Punk"},
+                {"id": "22", "title": "Harder Better Faster Stronger", "artist": "Daft Punk"},
+                {"id": "33", "title": "One More Time", "artist": "Daft Punk"},
+                {"id": "44", "title": "Around the World", "artist": "Daft Punk"},
+            ],
+        )
         self.assertEqual(client.get_playlist.await_count, 2)
         client.get_playlist.assert_any_await(playlist_id="123", tracks_first=50)
         client.get_playlist.assert_any_await(playlist_id="123", tracks_first=50, tracks_after="c2")
@@ -51,7 +59,7 @@ class DeezerClientTests(unittest.IsolatedAsyncioTestCase):
         with self.assertLogs("deezer_client", level="ERROR") as logs:
             playlist_data = await service.get_playlist_tracks("404")
 
-        self.assertEqual(playlist_data, {"name": "", "track_ids": []})
+        self.assertEqual(playlist_data, {"name": "", "tracks": []})
         self.assertIn("404", logs.output[0])
 
     async def test_get_playlist_tracks_returns_empty_list_when_playlist_fetch_raises(self) -> None:
@@ -65,7 +73,7 @@ class DeezerClientTests(unittest.IsolatedAsyncioTestCase):
         with self.assertLogs("deezer_client", level="ERROR") as logs:
             playlist_data = await service.get_playlist_tracks("private")
 
-        self.assertEqual(playlist_data, {"name": "", "track_ids": []})
+        self.assertEqual(playlist_data, {"name": "", "tracks": []})
         self.assertIn("private", logs.output[0])
 
     async def test_update_target_playlist_clears_then_readds_tracks_by_batches(self) -> None:

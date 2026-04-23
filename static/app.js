@@ -44,9 +44,11 @@ function renderTrackList(container, tracks) {
     return;
   }
 
-  tracks.forEach((trackId) => {
+  tracks.forEach((track) => {
     const item = document.createElement("li");
-    item.textContent = `Track ID ${trackId}`;
+    const artist = track.artist || "Artiste inconnu";
+    const title = track.title || `Titre inconnu (${track.id || "?"})`;
+    item.innerHTML = `<strong>${artist}</strong> - ${title}`;
     container.appendChild(item);
   });
 }

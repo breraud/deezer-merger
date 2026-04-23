@@ -15,6 +15,13 @@ ENV = {
 
 
 class MainTests(unittest.IsolatedAsyncioTestCase):
+    def make_track(self, track_id: str, title: str | None = None, artist: str = "Artist") -> dict[str, str]:
+        return {
+            "id": track_id,
+            "title": title or f"Track {track_id}",
+            "artist": artist,
+        }
+
     async def test_load_state_returns_empty_structure_when_file_is_missing(self) -> None:
         from main import load_state
 
@@ -38,13 +45,17 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
         from main import load_state, save_state
 
         payload = {
-            "source_pools": {"player1": ["1"], "player2": ["2"], "player3": []},
+            "source_pools": {
+                "player1": [self.make_track("1")],
+                "player2": [self.make_track("2")],
+                "player3": [],
+            },
             "players": {
-                "player1": {"name": "Playlist 1", "selection": ["1"]},
+                "player1": {"name": "Playlist 1", "selection": [self.make_track("1")]},
                 "player2": {"name": "Playlist 2", "selection": []},
                 "player3": {"name": "Playlist 3", "selection": []},
             },
-            "mix": ["1", "2"],
+            "mix": [self.make_track("1"), self.make_track("2")],
         }
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -68,9 +79,9 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
                     state_path=state_path,
                 )
                 manager.state["source_pools"] = {
-                    "player1": ["1", "2", "3"],
-                    "player2": ["4", "5"],
-                    "player3": ["6", "7", "8", "9"],
+                    "player1": [self.make_track("1"), self.make_track("2"), self.make_track("3")],
+                    "player2": [self.make_track("4"), self.make_track("5")],
+                    "player3": [self.make_track("6"), self.make_track("7"), self.make_track("8"), self.make_track("9")],
                 }
                 manager.state["players"]["player1"]["name"] = "Playlist 1"
                 manager.state["players"]["player2"]["name"] = "Playlist 2"
@@ -92,18 +103,18 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
                 tracks_per_player=2,
             )
             manager.state["source_pools"] = {
-                "player1": ["1", "2", "3"],
-                "player2": ["4", "5"],
-                "player3": ["6", "7", "8", "9"],
+                "player1": [self.make_track("1"), self.make_track("2"), self.make_track("3")],
+                "player2": [self.make_track("4"), self.make_track("5")],
+                "player3": [self.make_track("6"), self.make_track("7"), self.make_track("8"), self.make_track("9")],
             }
 
             payload = await manager.generate_mix(balanced=False)
 
-        self.assertEqual(payload["players"]["player1"]["selection"], ["1", "2", "3"])
-        self.assertEqual(payload["players"]["player2"]["selection"], ["4", "5"])
-        self.assertEqual(payload["players"]["player3"]["selection"], ["6", "7", "8", "9"])
+        self.assertEqual([track["id"] for track in payload["players"]["player1"]["selection"]], ["1", "2", "3"])
+        self.assertEqual([track["id"] for track in payload["players"]["player2"]["selection"]], ["4", "5"])
+        self.assertEqual([track["id"] for track in payload["players"]["player3"]["selection"]], ["6", "7", "8", "9"])
         self.assertEqual(len(payload["mix"]), 9)
-        deezer_client.update_target_playlist.assert_awaited_once_with("999", payload["mix"])
+        deezer_client.update_target_playlist.assert_awaited_once_with("999", [track["id"] for track in payload["mix"]])
 
     async def test_generate_mix_balanced_samples_using_smallest_playlist_size(self) -> None:
         with patch.dict(os.environ, ENV, clear=True):
@@ -129,16 +140,16 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
                 randomizer=randomizer,
             )
             manager.state["source_pools"] = {
-                "player1": ["1", "2", "3"],
-                "player2": ["4", "5"],
-                "player3": ["6", "7", "8", "9"],
+                "player1": [self.make_track("1"), self.make_track("2"), self.make_track("3")],
+                "player2": [self.make_track("4"), self.make_track("5")],
+                "player3": [self.make_track("6"), self.make_track("7"), self.make_track("8"), self.make_track("9")],
             }
 
             payload = await manager.generate_mix(balanced=True)
 
-        self.assertEqual(payload["players"]["player1"]["selection"], ["1", "2"])
-        self.assertEqual(payload["players"]["player2"]["selection"], ["4", "5"])
-        self.assertEqual(payload["players"]["player3"]["selection"], ["6", "7"])
+        self.assertEqual([track["id"] for track in payload["players"]["player1"]["selection"]], ["1", "2"])
+        self.assertEqual([track["id"] for track in payload["players"]["player2"]["selection"]], ["4", "5"])
+        self.assertEqual([track["id"] for track in payload["players"]["player3"]["selection"]], ["6", "7"])
         self.assertEqual(len(payload["mix"]), 6)
         self.assertEqual(randomizer.sample_call_count, 3)
 
@@ -148,9 +159,9 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
 
             deezer_client = AsyncMock()
             deezer_client.get_playlist_tracks.side_effect = [
-                {"name": "Alpha", "track_ids": ["11", "12"]},
-                {"name": "Beta", "track_ids": ["21", "22", "22"]},
-                {"name": "Gamma", "track_ids": []},
+                {"name": "Alpha", "tracks": [self.make_track("11"), self.make_track("12")]},
+                {"name": "Beta", "tracks": [self.make_track("21"), self.make_track("22"), self.make_track("22")]},
+                {"name": "Gamma", "tracks": []},
             ]
 
             manager = MixManager(
@@ -158,18 +169,22 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
                 deezer_client=deezer_client,
                 tracks_per_player=2,
             )
-            manager.state["source_pools"] = {"player1": ["old"], "player2": ["old"], "player3": ["old"]}
-            manager.state["players"] = {
-                "player1": {"name": "Old 1", "selection": ["x"]},
-                "player2": {"name": "Old 2", "selection": ["y"]},
-                "player3": {"name": "Old 3", "selection": ["z"]},
+            manager.state["source_pools"] = {
+                "player1": [self.make_track("old1")],
+                "player2": [self.make_track("old2")],
+                "player3": [self.make_track("old3")],
             }
-            manager.state["mix"] = ["x", "y", "z"]
+            manager.state["players"] = {
+                "player1": {"name": "Old 1", "selection": [self.make_track("x")]},
+                "player2": {"name": "Old 2", "selection": [self.make_track("y")]},
+                "player3": {"name": "Old 3", "selection": [self.make_track("z")]},
+            }
+            manager.state["mix"] = [self.make_track("x"), self.make_track("y"), self.make_track("z")]
 
             payload = await manager.reload_all_data()
 
-        self.assertEqual(payload["source_pools"]["player1"], ["11", "12"])
-        self.assertEqual(payload["source_pools"]["player2"], ["21", "22"])
+        self.assertEqual([track["id"] for track in payload["source_pools"]["player1"]], ["11", "12"])
+        self.assertEqual([track["id"] for track in payload["source_pools"]["player2"]], ["21", "22"])
         self.assertEqual(payload["source_pools"]["player3"], [])
         self.assertEqual(payload["players"]["player1"], {"name": "Alpha", "selection": []})
         self.assertEqual(payload["players"]["player2"], {"name": "Beta", "selection": []})
@@ -182,9 +197,9 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
 
             deezer_client = AsyncMock()
             deezer_client.get_playlist_tracks.side_effect = [
-                {"name": "Alpha", "track_ids": ["1", "2", "3", "4"]},
-                {"name": "Beta", "track_ids": ["5", "6", "7"]},
-                {"name": "Gamma", "track_ids": ["8", "9", "10", "11", "12"]},
+                {"name": "Alpha", "tracks": [self.make_track("1"), self.make_track("2"), self.make_track("3"), self.make_track("4")]},
+                {"name": "Beta", "tracks": [self.make_track("5"), self.make_track("6"), self.make_track("7")]},
+                {"name": "Gamma", "tracks": [self.make_track("8"), self.make_track("9"), self.make_track("10"), self.make_track("11"), self.make_track("12")]},
             ]
             class Randomizer:
                 def sample(self, pool, count):
@@ -193,21 +208,23 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
                 def shuffle(self, _items):
                     return None
 
-            manager = MixManager(
-                settings=Settings.from_env(),
-                deezer_client=deezer_client,
-                tracks_per_player=2,
-                randomizer=Randomizer(),
-            )
+            with tempfile.TemporaryDirectory() as tmpdir:
+                manager = MixManager(
+                    settings=Settings.from_env(),
+                    deezer_client=deezer_client,
+                    tracks_per_player=2,
+                    randomizer=Randomizer(),
+                    state_path=Path(tmpdir) / "state.json",
+                )
 
-            payload = await manager.generate_mix(balanced=True)
+                payload = await manager.generate_mix(balanced=True)
 
         self.assertEqual(set(payload["players"]), {"player1", "player2", "player3"})
-        self.assertEqual(payload["players"]["player1"]["selection"], ["1", "2", "3"])
-        self.assertEqual(payload["players"]["player2"]["selection"], ["5", "6", "7"])
-        self.assertEqual(payload["players"]["player3"]["selection"], ["8", "9", "10"])
+        self.assertEqual([track["id"] for track in payload["players"]["player1"]["selection"]], ["1", "2", "3"])
+        self.assertEqual([track["id"] for track in payload["players"]["player2"]["selection"]], ["5", "6", "7"])
+        self.assertEqual([track["id"] for track in payload["players"]["player3"]["selection"]], ["8", "9", "10"])
         self.assertEqual(len(payload["mix"]), 9)
-        deezer_client.update_target_playlist.assert_awaited_once_with("999", payload["mix"])
+        deezer_client.update_target_playlist.assert_awaited_once_with("999", [track["id"] for track in payload["mix"]])
 
     async def test_refresh_player_replaces_only_targeted_selection_in_balanced_mode(self) -> None:
         with patch.dict(os.environ, ENV, clear=True):
@@ -229,24 +246,28 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
                 randomizer=randomizer,
             )
             manager.state["source_pools"] = {
-                "player1": ["1", "2", "10", "11", "14"],
-                "player2": ["3", "4", "12"],
-                "player3": ["5", "6", "13"],
+                "player1": [self.make_track("1"), self.make_track("2"), self.make_track("10"), self.make_track("11"), self.make_track("14")],
+                "player2": [self.make_track("3"), self.make_track("4"), self.make_track("12")],
+                "player3": [self.make_track("5"), self.make_track("6"), self.make_track("13")],
             }
             manager.state["players"] = {
-                "player1": {"name": "Alpha", "selection": ["1", "2", "10"]},
-                "player2": {"name": "Beta", "selection": ["3", "4", "12"]},
-                "player3": {"name": "Gamma", "selection": ["5", "6", "13"]},
+                "player1": {"name": "Alpha", "selection": [self.make_track("1"), self.make_track("2"), self.make_track("10")]},
+                "player2": {"name": "Beta", "selection": [self.make_track("3"), self.make_track("4"), self.make_track("12")]},
+                "player3": {"name": "Gamma", "selection": [self.make_track("5"), self.make_track("6"), self.make_track("13")]},
             }
-            manager.state["mix"] = ["1", "2", "10", "3", "4", "12", "5", "6", "13"]
+            manager.state["mix"] = [
+                self.make_track("1"), self.make_track("2"), self.make_track("10"),
+                self.make_track("3"), self.make_track("4"), self.make_track("12"),
+                self.make_track("5"), self.make_track("6"), self.make_track("13"),
+            ]
 
             payload = await manager.refresh_player("player1", balanced=True)
 
-        self.assertEqual(payload["players"]["player2"]["selection"], ["3", "4", "12"])
-        self.assertEqual(payload["players"]["player3"]["selection"], ["5", "6", "13"])
-        self.assertEqual(payload["players"]["player1"]["selection"], ["10", "11", "14"])
-        self.assertEqual(len(set(payload["mix"])), 9)
-        deezer_client.update_target_playlist.assert_awaited_once_with("999", payload["mix"])
+        self.assertEqual([track["id"] for track in payload["players"]["player2"]["selection"]], ["3", "4", "12"])
+        self.assertEqual([track["id"] for track in payload["players"]["player3"]["selection"]], ["5", "6", "13"])
+        self.assertEqual([track["id"] for track in payload["players"]["player1"]["selection"]], ["10", "11", "14"])
+        self.assertEqual(len({track["id"] for track in payload["mix"]}), 9)
+        deezer_client.update_target_playlist.assert_awaited_once_with("999", [track["id"] for track in payload["mix"]])
 
 
 class ApiTests(unittest.IsolatedAsyncioTestCase):
@@ -275,9 +296,9 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
                 async def generate_mix(self, balanced: bool = False):
                     self.generate_balanced = balanced
                     return {
-                        "mix": ["1"],
+                        "mix": [MainTests.make_track(self, "1", artist="Alpha")],
                         "players": {
-                            "player1": {"name": "Alpha", "selection": ["1"]},
+                            "player1": {"name": "Alpha", "selection": [MainTests.make_track(self, "1", artist="Alpha")]},
                             "player2": {"name": "Beta", "selection": []},
                             "player3": {"name": "Gamma", "selection": []},
                         },
@@ -287,10 +308,10 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
                 async def refresh_player(self, _player_id: str, balanced: bool = False):
                     self.refresh_balanced = balanced
                     return {
-                        "mix": ["2"],
+                        "mix": [MainTests.make_track(self, "2", artist="Beta")],
                         "players": {
                             "player1": {"name": "Alpha", "selection": []},
-                            "player2": {"name": "Beta", "selection": ["2"]},
+                            "player2": {"name": "Beta", "selection": [MainTests.make_track(self, "2", artist="Beta")]},
                             "player3": {"name": "Gamma", "selection": []},
                         },
                         "source_pools": self.source_pools,
@@ -317,12 +338,12 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
 
                 response = await client.post("/api/generate?balanced=true")
                 self.assertEqual(response.status_code, 200)
-                self.assertEqual(response.json()["mix"], ["1"])
+                self.assertEqual(response.json()["mix"][0]["id"], "1")
                 self.assertTrue(manager.generate_balanced)
 
                 response = await client.post("/api/refresh/player2?balanced=false")
                 self.assertEqual(response.status_code, 200)
-                self.assertEqual(response.json()["mix"], ["2"])
+                self.assertEqual(response.json()["mix"][0]["id"], "2")
                 self.assertFalse(manager.refresh_balanced)
 
                 response = await client.post("/api/reset")

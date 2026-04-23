@@ -17,7 +17,7 @@ def _as_mapping(value: Any) -> dict[str, Any]:
     return getattr(value, "__dict__", {})
 
 
-def _extract_track_ids(payload: Any) -> list[str]:
+def _extract_track_metadata(payload: Any) -> list[dict[str, str]]:
     data = _as_mapping(payload)
     tracks = _as_mapping(data.get("tracks"))
     edges = tracks.get("edges")
@@ -28,15 +28,30 @@ def _extract_track_ids(payload: Any) -> list[str]:
     if edges is None and isinstance(tracks.get("items"), list):
         edges = tracks["items"]
 
-    track_ids: list[str] = []
+    track_data: list[dict[str, str]] = []
     for edge in edges or []:
         edge_data = _as_mapping(edge)
         node = _as_mapping(edge_data.get("node", edge_data))
         raw_track_id = node.get("id") or node.get("SNG_ID") or node.get("track_id")
         if raw_track_id is None:
             continue
-        track_ids.append(str(raw_track_id))
-    return track_ids
+        contributors = _as_mapping(node.get("contributors"))
+        contributor_edges = contributors.get("edges") or []
+        artist_name = ""
+        for contributor_edge in contributor_edges:
+            contributor_node = _as_mapping(_as_mapping(contributor_edge).get("node"))
+            artist_name = contributor_node.get("name", "")
+            if artist_name:
+                break
+
+        track_data.append(
+            {
+                "id": str(raw_track_id),
+                "title": str(node.get("title") or ""),
+                "artist": str(artist_name or ""),
+            }
+        )
+    return track_data
 
 
 def _extract_playlist_name(payload: Any) -> str:
@@ -83,7 +98,7 @@ class DeezerClient:
         return self._client
 
     async def get_playlist_tracks(self, playlist_id: str) -> dict[str, Any]:
-        track_ids: list[str] = []
+        track_data: list[dict[str, str]] = []
         next_cursor: str | None = None
         playlist_name = ""
 
@@ -99,25 +114,25 @@ class DeezerClient:
                 playlist = await self.client.get_playlist(**request_kwargs)
             except Exception:
                 LOGGER.exception("Unable to fetch playlist %s", playlist_id)
-                return {"name": "", "track_ids": []}
+                return {"name": "", "tracks": []}
 
             if playlist is None:
                 LOGGER.error("Playlist %s was not found or is not accessible", playlist_id)
-                return {"name": "", "track_ids": []}
+                return {"name": "", "tracks": []}
 
             playlist_name = playlist_name or _extract_playlist_name(playlist)
-            track_ids.extend(_extract_track_ids(playlist))
+            track_data.extend(_extract_track_metadata(playlist))
             has_next_page, next_cursor = _extract_page_info(playlist)
             if not has_next_page or not next_cursor:
                 break
 
-        LOGGER.info("Fetched %s tracks from playlist %s", len(track_ids), playlist_id)
-        return {"name": playlist_name, "track_ids": track_ids}
+        LOGGER.info("Fetched %s tracks from playlist %s", len(track_data), playlist_id)
+        return {"name": playlist_name, "tracks": track_data}
 
     async def update_target_playlist(self, playlist_id: str, track_ids: Iterable[str]) -> None:
         normalized_track_ids = [str(track_id) for track_id in track_ids]
         existing_playlist = await self.get_playlist_tracks(playlist_id)
-        existing_track_ids = existing_playlist["track_ids"]
+        existing_track_ids = [track["id"] for track in existing_playlist["tracks"]]
 
         if existing_track_ids:
             LOGGER.info(

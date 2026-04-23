@@ -64,19 +64,39 @@ class Settings:
         )
 
 
-def _deduplicate(items: list[str]) -> list[str]:
+def _deduplicate(items: list[dict[str, str]]) -> list[dict[str, str]]:
     seen: set[str] = set()
-    deduplicated: list[str] = []
+    deduplicated: list[dict[str, str]] = []
     for item in items:
-        if item in seen:
+        track_id = item.get("id")
+        if not track_id or track_id in seen:
             continue
-        seen.add(item)
+        seen.add(track_id)
         deduplicated.append(item)
     return deduplicated
 
 
 def _default_player_name(player_id: str) -> str:
     return f"Joueur {player_id.removeprefix('player')}"
+
+
+def _normalize_track_list(items: list[Any]) -> list[dict[str, str]]:
+    normalized: list[dict[str, str]] = []
+    for item in items:
+        if isinstance(item, dict):
+            track_id = item.get("id")
+            if not track_id:
+                continue
+            normalized.append(
+                {
+                    "id": str(track_id),
+                    "title": str(item.get("title") or ""),
+                    "artist": str(item.get("artist") or ""),
+                }
+            )
+        elif item is not None:
+            normalized.append({"id": str(item), "title": "", "artist": ""})
+    return normalized
 
 
 def build_empty_state() -> dict[str, Any]:
@@ -101,16 +121,18 @@ def load_state(state_path: Path = STATE_FILE) -> dict[str, Any]:
         return build_empty_state()
 
     state = build_empty_state()
-    state["source_pools"].update(data.get("source_pools", {}))
+    raw_source_pools = data.get("source_pools", {})
+    for player_id in PLAYER_IDS:
+        state["source_pools"][player_id] = _normalize_track_list(list(raw_source_pools.get(player_id, [])))
     raw_players = data.get("players", {})
     for player_id in PLAYER_IDS:
         raw_player = raw_players.get(player_id)
         if isinstance(raw_player, dict):
             state["players"][player_id]["name"] = raw_player.get("name") or _default_player_name(player_id)
-            state["players"][player_id]["selection"] = list(raw_player.get("selection", []))
+            state["players"][player_id]["selection"] = _normalize_track_list(list(raw_player.get("selection", [])))
         elif isinstance(raw_player, list):
-            state["players"][player_id]["selection"] = list(raw_player)
-    state["mix"] = list(data.get("mix", []))
+            state["players"][player_id]["selection"] = _normalize_track_list(list(raw_player))
+    state["mix"] = _normalize_track_list(list(data.get("mix", [])))
     return state
 
 
@@ -137,14 +159,14 @@ class MixManager:
         self.state_path = state_path
         self.state: dict[str, Any] = load_state(self.state_path)
 
-    async def load_source_pools(self, force: bool = False) -> dict[str, list[str]]:
+    async def load_source_pools(self, force: bool = False) -> dict[str, list[dict[str, str]]]:
         if not force and all(self.state["source_pools"].values()):
             return self.state["source_pools"]
 
-        source_pools: dict[str, list[str]] = {}
+        source_pools: dict[str, list[dict[str, str]]] = {}
         for player_id, playlist_id in self.settings.source_playlists.items():
             playlist_data = await self.deezer_client.get_playlist_tracks(playlist_id)
-            source_pools[player_id] = _deduplicate(list(playlist_data["track_ids"]))
+            source_pools[player_id] = _deduplicate(list(playlist_data["tracks"]))
             if playlist_data["name"]:
                 self.state["players"][player_id]["name"] = playlist_data["name"]
 
@@ -186,10 +208,12 @@ class MixManager:
             return await self._publish_mix(selections)
 
         current_selection = selections.get(player_id, [])
+        current_selection_ids = {track["id"] for track in current_selection}
         available_tracks = [
-            track_id
+            track
             for track_id in source_pools[player_id]
-            if track_id not in current_selection
+            for track in [track_id]
+            if track["id"] not in current_selection_ids
         ]
         if len(available_tracks) < desired_count:
             available_tracks = list(source_pools[player_id])
@@ -206,9 +230,9 @@ class MixManager:
 
     def _build_selections(
         self,
-        source_pools: dict[str, list[str]],
+        source_pools: dict[str, list[dict[str, str]]],
         balanced: bool,
-    ) -> dict[str, list[str]]:
+    ) -> dict[str, list[dict[str, str]]]:
         if not balanced:
             return {
                 player_id: list(source_pools[player_id])
@@ -222,20 +246,21 @@ class MixManager:
             for player_id in PLAYER_IDS
         }
 
-    def _get_balanced_count(self, source_pools: dict[str, list[str]]) -> int:
+    def _get_balanced_count(self, source_pools: dict[str, list[dict[str, str]]]) -> int:
         lengths = [len(source_pools[player_id]) for player_id in PLAYER_IDS]
         return min(lengths) if lengths else 0
 
-    async def _publish_mix(self, selections: dict[str, list[str]]) -> dict[str, Any]:
+    async def _publish_mix(self, selections: dict[str, list[dict[str, str]]]) -> dict[str, Any]:
         mixed_tracks = [
-            track_id
+            track
             for player_id in PLAYER_IDS
-            for track_id in selections[player_id]
+            for track in selections[player_id]
         ]
         self.randomizer.shuffle(mixed_tracks)
+        final_track_ids = [track["id"] for track in mixed_tracks]
         await self.deezer_client.update_target_playlist(
             self.settings.target_playlist,
-            mixed_tracks,
+            final_track_ids,
         )
         for player_id in PLAYER_IDS:
             self.state["players"][player_id]["selection"] = list(selections[player_id])
