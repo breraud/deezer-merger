@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deezer Mix & Refresh</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <p class="eyebrow">Deezer Mix & Refresh</p>
+      <h1>Fusionner trois playlists, rafraîchir un joueur, garder le reste intact.</h1>
+      <p class="intro">
+        Le serveur conserve l’état du mix courant, repousse la playlist cible sur Deezer et permet un refresh chirurgical par joueur.
+      </p>
+      <div class="actions">
+        <button id="generate-button" class="primary">Generer un nouveau Mix</button>
+        <button data-player="player1">Rafraichir Joueur 1</button>
+        <button data-player="player2">Rafraichir Joueur 2</button>
+        <button data-player="player3">Rafraichir Joueur 3</button>
+      </div>
+      <p id="status-message" class="status">Chargement de l'etat courant...</p>
+    </section>
+
+    <section class="grid">
+      <article class="panel panel-mix">
+        <div class="panel-header">
+          <h2>Mix courant</h2>
+          <span id="mix-count" class="badge">0 titres</span>
+        </div>
+        <ol id="mix-list" class="track-list"></ol>
+      </article>
+
+      <article class="panel">
+        <div class="panel-header">
+          <h2>Selections par joueur</h2>
+        </div>
+        <div class="players">
+          <section class="player-card">
+            <h3>Joueur 1</h3>
+            <ul id="player1-list" class="track-list compact"></ul>
+          </section>
+          <section class="player-card">
+            <h3>Joueur 2</h3>
+            <ul id="player2-list" class="track-list compact"></ul>
+          </section>
+          <section class="player-card">
+            <h3>Joueur 3</h3>
+            <ul id="player3-list" class="track-list compact"></ul>
+          </section>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
