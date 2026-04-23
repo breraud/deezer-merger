@@ -195,7 +195,7 @@ class MixManager:
         self.state = build_empty_state()
         await self.load_source_pools(force=True)
         save_state(self.state, self.state_path)
-        return await self.get_status()
+        return self._build_status_payload()
 
     async def refresh_player_source_cache(self, player_id: str) -> None:
         playlist_id = self.settings.source_playlists[player_id]
@@ -249,6 +249,12 @@ class MixManager:
         return await self._publish_mix(selections)
 
     async def get_status(self) -> dict[str, Any]:
+        if any(self.state["source_pools"].values()) and not self.state["mix"]:
+            LOGGER.warning("Source pools are populated but mix is empty. Rebuilding mix from cached state.")
+            return await self.generate_mix(balanced=False)
+        return self._build_status_payload()
+
+    def _build_status_payload(self) -> dict[str, Any]:
         return {
             "source_pools": self.state["source_pools"],
             "players": self.state["players"],
@@ -293,7 +299,7 @@ class MixManager:
             self.state["players"][player_id]["selection"] = list(selections[player_id])
         self.state["mix"] = mixed_tracks
         save_state(self.state, self.state_path)
-        return await self.get_status()
+        return self._build_status_payload()
 
 
 def create_app(manager: MixManager | Any | None = None):

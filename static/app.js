@@ -68,8 +68,7 @@ function renderState(payload) {
   renderTrackList(mixList, mix);
 
   Object.entries(playerLists).forEach(([playerId, element]) => {
-    const playerData = players[playerId] || {};
-    renderTrackList(element, playerData.selection || []);
+    renderTrackList(element, sourcePools[playerId] || []);
   });
 
   Object.entries(playerCounts).forEach(([playerId, element]) => {

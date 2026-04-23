@@ -156,6 +156,38 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sorted(track["id"] for track in payload["mix"]), ["1", "2", "3"])
         deezer_client.get_playlist_tracks.assert_not_awaited()
 
+    async def test_get_status_rebuilds_mix_when_source_pools_exist_but_mix_is_empty(self) -> None:
+        with patch.dict(os.environ, ENV, clear=True):
+            from main import MixManager, Settings
+
+            deezer_client = AsyncMock()
+            with tempfile.TemporaryDirectory() as tmpdir:
+                manager = MixManager(
+                    settings=Settings.from_env(),
+                    deezer_client=deezer_client,
+                    state_path=Path(tmpdir) / "state.json",
+                )
+                manager.state["source_pools"] = {
+                    "player1": [self.make_track("1"), self.make_track("2")],
+                    "player2": [self.make_track("3")],
+                    "player3": [self.make_track("4"), self.make_track("5")],
+                }
+                manager.state["players"] = {
+                    "player1": {"name": "Alpha", "selection": []},
+                    "player2": {"name": "Beta", "selection": []},
+                    "player3": {"name": "Gamma", "selection": []},
+                }
+                manager.state["mix"] = []
+
+                payload = await manager.get_status()
+
+        self.assertEqual([track["id"] for track in payload["players"]["player1"]["selection"]], ["1", "2"])
+        self.assertEqual([track["id"] for track in payload["players"]["player2"]["selection"]], ["3"])
+        self.assertEqual([track["id"] for track in payload["players"]["player3"]["selection"]], ["4", "5"])
+        self.assertEqual(len(payload["mix"]), 5)
+        deezer_client.get_playlist_tracks.assert_not_awaited()
+        deezer_client.update_target_playlist.assert_awaited_once_with("999", [track["id"] for track in payload["mix"]])
+
     async def test_generate_mix_fails_when_cache_is_empty_instead_of_refetching(self) -> None:
         with patch.dict(os.environ, ENV, clear=True):
             from main import MixManager, Settings
