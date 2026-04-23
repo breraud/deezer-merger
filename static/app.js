@@ -23,6 +23,11 @@ const refreshButtons = {
   player3: document.querySelector("#refresh-player3-button"),
 };
 const buttons = Array.from(document.querySelectorAll("button"));
+let currentPlayerNames = {
+  player1: "Playlist 1",
+  player2: "Playlist 2",
+  player3: "Playlist 3",
+};
 
 function setLoading(isLoading, message) {
   buttons.forEach((button) => {
@@ -74,7 +79,8 @@ function renderState(payload) {
 
   Object.entries(playerTitles).forEach(([playerId, element]) => {
     const playerData = players[playerId] || {};
-    const label = playerData.name || `Joueur ${playerId.replace("player", "")}`;
+    const label = playerData.name || currentPlayerNames[playerId] || `Playlist ${playerId.replace("player", "")}`;
+    currentPlayerNames[playerId] = label;
     element.textContent = label;
     refreshButtons[playerId].textContent = `Rafraichir ${label}`;
   });
@@ -129,7 +135,7 @@ async function triggerAction(path, pendingMessage, successMessage) {
   try {
     const payload = await callApi(path, { method: "POST" });
     renderState(payload);
-    statusMessage.textContent = successMessage;
+    statusMessage.textContent = typeof successMessage === "function" ? successMessage(payload) : successMessage;
   } catch (error) {
     statusMessage.textContent = error.message;
   } finally {
@@ -146,17 +152,31 @@ document.querySelector("#generate-button").addEventListener("click", () => {
 });
 
 document.querySelector("#reset-button").addEventListener("click", () => {
-  triggerAction("/api/reset", "Reset complet, rechargement des playlists et synchro Deezer...", "Reset complet termine.");
+  triggerAction(
+    "/api/reset",
+    "Reset complet, rechargement des playlists et synchro Deezer...",
+    (payload) => {
+      const names = Object.values(payload.players || {})
+        .map((player) => player.name)
+        .filter(Boolean);
+      return names.length > 0
+        ? `${names.join(", ")} recharges depuis Deezer.`
+        : "Reset complet termine.";
+    },
+  );
 });
 
 document.querySelectorAll("[data-player]").forEach((button) => {
   button.addEventListener("click", () => {
     const playerId = button.dataset.player;
-    const playerLabel = playerId.replace("player", "Joueur ");
+    const playerLabel = currentPlayerNames[playerId] || `Playlist ${playerId.replace("player", "")}`;
     triggerAction(
       buildActionUrl(`/api/refresh/${playerId}`, true),
       `Rafraichissement de ${playerLabel} et synchronisation Deezer...`,
-      `${playerLabel} rafraichi avec succes.`,
+      (payload) => {
+        const refreshedLabel = payload.players?.[playerId]?.name || playerLabel;
+        return `${refreshedLabel} recharge.`;
+      },
     );
   });
 });
