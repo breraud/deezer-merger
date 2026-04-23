@@ -179,6 +179,11 @@ class MixManager:
             raise ValueError("Source playlists are not loaded. Use reset to populate the local cache first.")
         return source_pools
 
+    async def ensure_state_loaded(self) -> None:
+        if any(self.state["source_pools"].values()):
+            return
+        await self.reload_all_data()
+
     async def reload_all_data(self) -> dict[str, Any]:
         self.state = build_empty_state()
         await self.load_source_pools(force=True)
@@ -285,11 +290,11 @@ class MixManager:
 
 
 def create_app(manager: MixManager | Any | None = None):
+    from contextlib import asynccontextmanager
+
     from fastapi import FastAPI, HTTPException
     from fastapi.responses import FileResponse
     from fastapi.staticfiles import StaticFiles
-
-    app = FastAPI(title="Deezer Mix & Refresh")
 
     if manager is None:
         settings = Settings.from_env()
@@ -298,7 +303,20 @@ def create_app(manager: MixManager | Any | None = None):
             deezer_client=DeezerClient(arl=settings.deezer_arl),
         )
 
+    @asynccontextmanager
+    async def lifespan(app: Any):
+        if hasattr(app.state.manager, "ensure_state_loaded"):
+            await app.state.manager.ensure_state_loaded()
+        yield
+
+    app = FastAPI(title="Deezer Mix & Refresh", lifespan=lifespan)
     app.state.manager = manager
+
+    async def get_manager() -> Any:
+        current_manager = app.state.manager
+        if hasattr(current_manager, "ensure_state_loaded"):
+            await current_manager.ensure_state_loaded()
+        return current_manager
 
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -309,12 +327,14 @@ def create_app(manager: MixManager | Any | None = None):
 
     @app.get("/api/status")
     async def get_status() -> dict[str, Any]:
-        return await app.state.manager.get_status()
+        manager = await get_manager()
+        return await manager.get_status()
 
     @app.post("/api/generate")
     async def generate_mix(balanced: bool = False) -> dict[str, Any]:
         try:
-            return await app.state.manager.generate_mix(balanced=balanced)
+            manager = await get_manager()
+            return await manager.generate_mix(balanced=balanced)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:  # pragma: no cover - external service errors
@@ -324,7 +344,8 @@ def create_app(manager: MixManager | Any | None = None):
     @app.post("/api/refresh/{player_id}")
     async def refresh_player(player_id: str, balanced: bool = False) -> dict[str, Any]:
         try:
-            return await app.state.manager.refresh_player(player_id, balanced=balanced)
+            manager = await get_manager()
+            return await manager.refresh_player(player_id, balanced=balanced)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:  # pragma: no cover - external service errors
@@ -334,8 +355,9 @@ def create_app(manager: MixManager | Any | None = None):
     @app.post("/api/reset")
     async def reset_data() -> dict[str, Any]:
         try:
-            await app.state.manager.reload_all_data()
-            return await app.state.manager.generate_mix()
+            manager = await get_manager()
+            await manager.reload_all_data()
+            return await manager.generate_mix()
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:  # pragma: no cover - external service errors

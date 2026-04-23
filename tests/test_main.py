@@ -356,6 +356,49 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ApiTests(unittest.IsolatedAsyncioTestCase):
+    async def test_app_auto_loads_deezer_data_when_state_is_empty(self) -> None:
+        with patch.dict(os.environ, ENV, clear=True):
+            import httpx
+            from main import create_app
+
+            class FakeManager:
+                def __init__(self):
+                    self.ensure_called = False
+                    self.state = {
+                        "mix": [],
+                        "players": {
+                            "player1": {"name": "Alpha", "selection": []},
+                            "player2": {"name": "Beta", "selection": []},
+                            "player3": {"name": "Gamma", "selection": []},
+                        },
+                        "source_pools": {"player1": [], "player2": [], "player3": []},
+                    }
+
+                async def ensure_state_loaded(self):
+                    self.ensure_called = True
+                    self.state["source_pools"]["player1"] = [MainTests.make_track(self, "1", artist="Alpha")]
+
+                async def get_status(self):
+                    return self.state
+
+                async def generate_mix(self, balanced: bool = False):
+                    return self.state
+
+                async def refresh_player(self, _player_id: str, balanced: bool = False):
+                    return self.state
+
+                async def reload_all_data(self):
+                    return self.state
+
+            manager = FakeManager()
+            transport = httpx.ASGITransport(app=create_app(manager=manager))
+            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+                response = await client.get("/api/status")
+
+        self.assertTrue(manager.ensure_called)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["source_pools"]["player1"][0]["id"], "1")
+
     async def test_endpoints_return_status_payload(self) -> None:
         with patch.dict(os.environ, ENV, clear=True):
             import httpx
