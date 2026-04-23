@@ -92,6 +92,72 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("\"mix\"", saved_state)
         self.assertEqual(payload["mix"], manager.state["mix"])
 
+    async def test_generate_mix_uses_only_cached_state_without_refetching_sources(self) -> None:
+        with patch.dict(os.environ, ENV, clear=True):
+            from main import MixManager, Settings
+
+            deezer_client = AsyncMock()
+            with tempfile.TemporaryDirectory() as tmpdir:
+                manager = MixManager(
+                    settings=Settings.from_env(),
+                    deezer_client=deezer_client,
+                    state_path=Path(tmpdir) / "state.json",
+                )
+                manager.state["source_pools"] = {
+                    "player1": [self.make_track("1")],
+                    "player2": [self.make_track("2")],
+                    "player3": [self.make_track("3")],
+                }
+
+                payload = await manager.generate_mix(balanced=False)
+
+        self.assertEqual(sorted(track["id"] for track in payload["mix"]), ["1", "2", "3"])
+        deezer_client.get_playlist_tracks.assert_not_awaited()
+
+    async def test_generate_mix_fails_when_cache_is_empty_instead_of_refetching(self) -> None:
+        with patch.dict(os.environ, ENV, clear=True):
+            from main import MixManager, Settings
+
+            deezer_client = AsyncMock()
+            with tempfile.TemporaryDirectory() as tmpdir:
+                manager = MixManager(
+                    settings=Settings.from_env(),
+                    deezer_client=deezer_client,
+                    state_path=Path(tmpdir) / "state.json",
+                )
+
+                with self.assertRaises(ValueError):
+                    await manager.generate_mix(balanced=False)
+
+        deezer_client.get_playlist_tracks.assert_not_awaited()
+
+    async def test_refresh_player_uses_only_cached_state_without_refetching_sources(self) -> None:
+        with patch.dict(os.environ, ENV, clear=True):
+            from main import MixManager, Settings
+
+            deezer_client = AsyncMock()
+            with tempfile.TemporaryDirectory() as tmpdir:
+                manager = MixManager(
+                    settings=Settings.from_env(),
+                    deezer_client=deezer_client,
+                    state_path=Path(tmpdir) / "state.json",
+                )
+                manager.state["source_pools"] = {
+                    "player1": [self.make_track("1"), self.make_track("10")],
+                    "player2": [self.make_track("2")],
+                    "player3": [self.make_track("3")],
+                }
+                manager.state["players"] = {
+                    "player1": {"name": "Alpha", "selection": [self.make_track("1")]},
+                    "player2": {"name": "Beta", "selection": [self.make_track("2")]},
+                    "player3": {"name": "Gamma", "selection": [self.make_track("3")]},
+                }
+                manager.state["mix"] = [self.make_track("1"), self.make_track("2"), self.make_track("3")]
+
+                await manager.refresh_player("player1", balanced=False)
+
+        deezer_client.get_playlist_tracks.assert_not_awaited()
+
     async def test_generate_mix_full_merge_uses_entire_cached_pools(self) -> None:
         with patch.dict(os.environ, ENV, clear=True):
             from main import MixManager, Settings
@@ -191,7 +257,7 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["players"]["player3"], {"name": "Gamma", "selection": []})
         self.assertEqual(payload["mix"], [])
 
-    async def test_generate_mix_balanced_reuses_smallest_pool_size_after_cache_load(self) -> None:
+    async def test_generate_mix_balanced_reuses_smallest_pool_size_after_reload_cache(self) -> None:
         with patch.dict(os.environ, ENV, clear=True):
             from main import MixManager, Settings
 
@@ -216,7 +282,7 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
                     randomizer=Randomizer(),
                     state_path=Path(tmpdir) / "state.json",
                 )
-
+                await manager.reload_all_data()
                 payload = await manager.generate_mix(balanced=True)
 
         self.assertEqual(set(payload["players"]), {"player1", "player2", "player3"})

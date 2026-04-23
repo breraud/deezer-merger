@@ -173,6 +173,12 @@ class MixManager:
         self.state["source_pools"] = source_pools
         return source_pools
 
+    def get_cached_source_pools(self) -> dict[str, list[dict[str, str]]]:
+        source_pools = self.state["source_pools"]
+        if not any(source_pools.values()):
+            raise ValueError("Source playlists are not loaded. Use reset to populate the local cache first.")
+        return source_pools
+
     async def reload_all_data(self) -> dict[str, Any]:
         self.state = build_empty_state()
         await self.load_source_pools(force=True)
@@ -180,7 +186,7 @@ class MixManager:
         return await self.get_status()
 
     async def generate_mix(self, balanced: bool = False) -> dict[str, Any]:
-        source_pools = await self.load_source_pools(force=False)
+        source_pools = self.get_cached_source_pools()
         selections = self._build_selections(source_pools, balanced=balanced)
         return await self._publish_mix(selections)
 
@@ -188,7 +194,7 @@ class MixManager:
         if player_id not in PLAYER_IDS:
             raise ValueError(f"Unknown player_id: {player_id}")
 
-        source_pools = await self.load_source_pools(force=False)
+        source_pools = self.get_cached_source_pools()
         if not balanced:
             selections = self._build_selections(source_pools, balanced=False)
             return await self._publish_mix(selections)
