@@ -12,4 +12,4 @@ services:
       - ./.env:/app/.env:ro
       - ./state.json:/app/state.json
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:3457:3457"

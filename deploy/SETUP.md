@@ -34,7 +34,7 @@ sudo certbot --apache -d deezer.beraud.dev
 ```bash
 cd /opt/deezer_sync
 docker compose ps
-curl -I http://127.0.0.1:8000/api/status
+curl -I http://127.0.0.1:3457/api/status
 sudo apache2ctl configtest
 sudo docker compose logs --tail=100
 ```
