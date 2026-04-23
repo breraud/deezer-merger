@@ -39,6 +39,17 @@ def _extract_track_ids(payload: Any) -> list[str]:
     return track_ids
 
 
+def _extract_playlist_name(payload: Any) -> str:
+    data = _as_mapping(payload)
+    raw_name = (
+        data.get("title")
+        or data.get("name")
+        or data.get("displayTitle")
+        or data.get("display_title")
+    )
+    return str(raw_name) if raw_name else ""
+
+
 def _extract_page_info(payload: Any) -> tuple[bool, str | None]:
     data = _as_mapping(payload)
     tracks = _as_mapping(data.get("tracks"))
@@ -71,9 +82,10 @@ class DeezerClient:
             self._client = DeezerGQLClient(arl=self.arl)
         return self._client
 
-    async def get_playlist_tracks(self, playlist_id: str) -> list[str]:
+    async def get_playlist_tracks(self, playlist_id: str) -> dict[str, Any]:
         track_ids: list[str] = []
         next_cursor: str | None = None
+        playlist_name = ""
 
         while True:
             request_kwargs: dict[str, Any] = {
@@ -87,23 +99,25 @@ class DeezerClient:
                 playlist = await self.client.get_playlist(**request_kwargs)
             except Exception:
                 LOGGER.exception("Unable to fetch playlist %s", playlist_id)
-                return []
+                return {"name": "", "track_ids": []}
 
             if playlist is None:
                 LOGGER.error("Playlist %s was not found or is not accessible", playlist_id)
-                return []
+                return {"name": "", "track_ids": []}
 
+            playlist_name = playlist_name or _extract_playlist_name(playlist)
             track_ids.extend(_extract_track_ids(playlist))
             has_next_page, next_cursor = _extract_page_info(playlist)
             if not has_next_page or not next_cursor:
                 break
 
         LOGGER.info("Fetched %s tracks from playlist %s", len(track_ids), playlist_id)
-        return track_ids
+        return {"name": playlist_name, "track_ids": track_ids}
 
     async def update_target_playlist(self, playlist_id: str, track_ids: Iterable[str]) -> None:
         normalized_track_ids = [str(track_id) for track_id in track_ids]
-        existing_track_ids = await self.get_playlist_tracks(playlist_id)
+        existing_playlist = await self.get_playlist_tracks(playlist_id)
+        existing_track_ids = existing_playlist["track_ids"]
 
         if existing_track_ids:
             LOGGER.info(

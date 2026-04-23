@@ -25,7 +25,11 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
             state,
             {
                 "source_pools": {"player1": [], "player2": [], "player3": []},
-                "players": {"player1": [], "player2": [], "player3": []},
+                "players": {
+                    "player1": {"name": "Joueur 1", "selection": []},
+                    "player2": {"name": "Joueur 2", "selection": []},
+                    "player3": {"name": "Joueur 3", "selection": []},
+                },
                 "mix": [],
             },
         )
@@ -35,7 +39,11 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
 
         payload = {
             "source_pools": {"player1": ["1"], "player2": ["2"], "player3": []},
-            "players": {"player1": ["1"], "player2": [], "player3": []},
+            "players": {
+                "player1": {"name": "Playlist 1", "selection": ["1"]},
+                "player2": {"name": "Playlist 2", "selection": []},
+                "player3": {"name": "Playlist 3", "selection": []},
+            },
             "mix": ["1", "2"],
         }
 
@@ -64,7 +72,9 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
                     "player2": ["4", "5"],
                     "player3": ["6", "7", "8", "9"],
                 }
-
+                manager.state["players"]["player1"]["name"] = "Playlist 1"
+                manager.state["players"]["player2"]["name"] = "Playlist 2"
+                manager.state["players"]["player3"]["name"] = "Playlist 3"
                 payload = await manager.generate_mix(balanced=False)
                 saved_state = state_path.read_text(encoding="utf-8")
 
@@ -89,9 +99,9 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
 
             payload = await manager.generate_mix(balanced=False)
 
-        self.assertEqual(payload["players"]["player1"], ["1", "2", "3"])
-        self.assertEqual(payload["players"]["player2"], ["4", "5"])
-        self.assertEqual(payload["players"]["player3"], ["6", "7", "8", "9"])
+        self.assertEqual(payload["players"]["player1"]["selection"], ["1", "2", "3"])
+        self.assertEqual(payload["players"]["player2"]["selection"], ["4", "5"])
+        self.assertEqual(payload["players"]["player3"]["selection"], ["6", "7", "8", "9"])
         self.assertEqual(len(payload["mix"]), 9)
         deezer_client.update_target_playlist.assert_awaited_once_with("999", payload["mix"])
 
@@ -126,9 +136,9 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
 
             payload = await manager.generate_mix(balanced=True)
 
-        self.assertEqual(payload["players"]["player1"], ["1", "2"])
-        self.assertEqual(payload["players"]["player2"], ["4", "5"])
-        self.assertEqual(payload["players"]["player3"], ["6", "7"])
+        self.assertEqual(payload["players"]["player1"]["selection"], ["1", "2"])
+        self.assertEqual(payload["players"]["player2"]["selection"], ["4", "5"])
+        self.assertEqual(payload["players"]["player3"]["selection"], ["6", "7"])
         self.assertEqual(len(payload["mix"]), 6)
         self.assertEqual(randomizer.sample_call_count, 3)
 
@@ -138,9 +148,9 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
 
             deezer_client = AsyncMock()
             deezer_client.get_playlist_tracks.side_effect = [
-                ["11", "12"],
-                ["21", "22", "22"],
-                [],
+                {"name": "Alpha", "track_ids": ["11", "12"]},
+                {"name": "Beta", "track_ids": ["21", "22", "22"]},
+                {"name": "Gamma", "track_ids": []},
             ]
 
             manager = MixManager(
@@ -149,7 +159,11 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
                 tracks_per_player=2,
             )
             manager.state["source_pools"] = {"player1": ["old"], "player2": ["old"], "player3": ["old"]}
-            manager.state["players"] = {"player1": ["x"], "player2": ["y"], "player3": ["z"]}
+            manager.state["players"] = {
+                "player1": {"name": "Old 1", "selection": ["x"]},
+                "player2": {"name": "Old 2", "selection": ["y"]},
+                "player3": {"name": "Old 3", "selection": ["z"]},
+            }
             manager.state["mix"] = ["x", "y", "z"]
 
             payload = await manager.reload_all_data()
@@ -157,7 +171,9 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["source_pools"]["player1"], ["11", "12"])
         self.assertEqual(payload["source_pools"]["player2"], ["21", "22"])
         self.assertEqual(payload["source_pools"]["player3"], [])
-        self.assertEqual(payload["players"], {"player1": [], "player2": [], "player3": []})
+        self.assertEqual(payload["players"]["player1"], {"name": "Alpha", "selection": []})
+        self.assertEqual(payload["players"]["player2"], {"name": "Beta", "selection": []})
+        self.assertEqual(payload["players"]["player3"], {"name": "Gamma", "selection": []})
         self.assertEqual(payload["mix"], [])
 
     async def test_generate_mix_balanced_reuses_smallest_pool_size_after_cache_load(self) -> None:
@@ -166,9 +182,9 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
 
             deezer_client = AsyncMock()
             deezer_client.get_playlist_tracks.side_effect = [
-                ["1", "2", "3", "4"],
-                ["5", "6", "7"],
-                ["8", "9", "10", "11", "12"],
+                {"name": "Alpha", "track_ids": ["1", "2", "3", "4"]},
+                {"name": "Beta", "track_ids": ["5", "6", "7"]},
+                {"name": "Gamma", "track_ids": ["8", "9", "10", "11", "12"]},
             ]
             class Randomizer:
                 def sample(self, pool, count):
@@ -187,9 +203,9 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
             payload = await manager.generate_mix(balanced=True)
 
         self.assertEqual(set(payload["players"]), {"player1", "player2", "player3"})
-        self.assertEqual(payload["players"]["player1"], ["1", "2", "3"])
-        self.assertEqual(payload["players"]["player2"], ["5", "6", "7"])
-        self.assertEqual(payload["players"]["player3"], ["8", "9", "10"])
+        self.assertEqual(payload["players"]["player1"]["selection"], ["1", "2", "3"])
+        self.assertEqual(payload["players"]["player2"]["selection"], ["5", "6", "7"])
+        self.assertEqual(payload["players"]["player3"]["selection"], ["8", "9", "10"])
         self.assertEqual(len(payload["mix"]), 9)
         deezer_client.update_target_playlist.assert_awaited_once_with("999", payload["mix"])
 
@@ -218,17 +234,17 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
                 "player3": ["5", "6", "13"],
             }
             manager.state["players"] = {
-                "player1": ["1", "2", "10"],
-                "player2": ["3", "4", "12"],
-                "player3": ["5", "6", "13"],
+                "player1": {"name": "Alpha", "selection": ["1", "2", "10"]},
+                "player2": {"name": "Beta", "selection": ["3", "4", "12"]},
+                "player3": {"name": "Gamma", "selection": ["5", "6", "13"]},
             }
             manager.state["mix"] = ["1", "2", "10", "3", "4", "12", "5", "6", "13"]
 
             payload = await manager.refresh_player("player1", balanced=True)
 
-        self.assertEqual(payload["players"]["player2"], ["3", "4", "12"])
-        self.assertEqual(payload["players"]["player3"], ["5", "6", "13"])
-        self.assertEqual(payload["players"]["player1"], ["10", "11", "14"])
+        self.assertEqual(payload["players"]["player2"]["selection"], ["3", "4", "12"])
+        self.assertEqual(payload["players"]["player3"]["selection"], ["5", "6", "13"])
+        self.assertEqual(payload["players"]["player1"]["selection"], ["10", "11", "14"])
         self.assertEqual(len(set(payload["mix"])), 9)
         deezer_client.update_target_playlist.assert_awaited_once_with("999", payload["mix"])
 
@@ -246,23 +262,51 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
                     self.refresh_balanced = None
 
                 async def get_status(self):
-                    return {"mix": [], "players": {}, "source_pools": self.source_pools}
+                    return {
+                        "mix": [],
+                        "players": {
+                            "player1": {"name": "Alpha", "selection": []},
+                            "player2": {"name": "Beta", "selection": []},
+                            "player3": {"name": "Gamma", "selection": []},
+                        },
+                        "source_pools": self.source_pools,
+                    }
 
                 async def generate_mix(self, balanced: bool = False):
                     self.generate_balanced = balanced
                     return {
                         "mix": ["1"],
-                        "players": {"player1": ["1"], "player2": [], "player3": []},
+                        "players": {
+                            "player1": {"name": "Alpha", "selection": ["1"]},
+                            "player2": {"name": "Beta", "selection": []},
+                            "player3": {"name": "Gamma", "selection": []},
+                        },
                         "source_pools": self.source_pools,
                     }
 
                 async def refresh_player(self, _player_id: str, balanced: bool = False):
                     self.refresh_balanced = balanced
-                    return {"mix": ["2"], "players": {"player2": ["2"]}}
+                    return {
+                        "mix": ["2"],
+                        "players": {
+                            "player1": {"name": "Alpha", "selection": []},
+                            "player2": {"name": "Beta", "selection": ["2"]},
+                            "player3": {"name": "Gamma", "selection": []},
+                        },
+                        "source_pools": self.source_pools,
+                    }
 
                 async def reload_all_data(self):
                     self.source_pools = {"player1": ["1"], "player2": [], "player3": []}
-                    return {"mix": [], "players": {}, "source_pools": self.source_pools}
+                    return {
+                        "mix": [],
+                        "players": {
+                            "player1": {"name": "Alpha", "selection": []},
+                            "player2": {"name": "Beta", "selection": []},
+                            "player3": {"name": "Gamma", "selection": []},
+                        },
+                        "source_pools": self.source_pools,
+                    }
 
             manager = FakeManager()
             transport = httpx.ASGITransport(app=create_app(manager=manager))

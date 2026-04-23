@@ -24,9 +24,9 @@
       <div class="actions">
         <button id="reset-button" class="danger">🔄 Reset Complet & Sync Deezer</button>
         <button id="generate-button" class="primary">Generer un nouveau Mix</button>
-        <button data-player="player1">Rafraichir Joueur 1</button>
-        <button data-player="player2">Rafraichir Joueur 2</button>
-        <button data-player="player3">Rafraichir Joueur 3</button>
+        <button id="refresh-player1-button" data-player="player1">Rafraichir Joueur 1</button>
+        <button id="refresh-player2-button" data-player="player2">Rafraichir Joueur 2</button>
+        <button id="refresh-player3-button" data-player="player3">Rafraichir Joueur 3</button>
       </div>
       <p id="status-message" class="status">Chargement de l'etat courant...</p>
     </section>
@@ -47,21 +47,21 @@
         <div class="players">
           <section class="player-card">
             <div class="player-header">
-              <h3>Joueur 1</h3>
+              <h3 id="player1-title">Joueur 1</h3>
               <span id="player1-count" class="player-count">0 titres charges</span>
             </div>
             <ul id="player1-list" class="track-list compact"></ul>
           </section>
           <section class="player-card">
             <div class="player-header">
-              <h3>Joueur 2</h3>
+              <h3 id="player2-title">Joueur 2</h3>
               <span id="player2-count" class="player-count">0 titres charges</span>
             </div>
             <ul id="player2-list" class="track-list compact"></ul>
           </section>
           <section class="player-card">
             <div class="player-header">
-              <h3>Joueur 3</h3>
+              <h3 id="player3-title">Joueur 3</h3>
               <span id="player3-count" class="player-count">0 titres charges</span>
             </div>
             <ul id="player3-list" class="track-list compact"></ul>

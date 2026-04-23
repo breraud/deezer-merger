@@ -3,12 +3,13 @@ from unittest.mock import AsyncMock, patch
 
 
 class DeezerClientTests(unittest.IsolatedAsyncioTestCase):
-    async def test_get_playlist_tracks_extracts_track_ids_across_pages(self) -> None:
+    async def test_get_playlist_tracks_extracts_name_and_track_ids_across_pages(self) -> None:
         from deezer_client import DeezerClient
 
         client = AsyncMock()
         client.get_playlist.side_effect = [
             {
+                "title": "Road Trip",
                 "tracks": {
                     "edges": [
                         {"cursor": "c1", "node": {"id": "11"}},
@@ -18,6 +19,7 @@ class DeezerClientTests(unittest.IsolatedAsyncioTestCase):
                 }
             },
             {
+                "title": "Road Trip",
                 "tracks": {
                     "edges": [
                         {"cursor": "c3", "node": {"SNG_ID": "33"}},
@@ -30,9 +32,10 @@ class DeezerClientTests(unittest.IsolatedAsyncioTestCase):
 
         service = DeezerClient(arl="token", client=client)
 
-        track_ids = await service.get_playlist_tracks("123")
+        playlist_data = await service.get_playlist_tracks("123")
 
-        self.assertEqual(track_ids, ["11", "22", "33", "44"])
+        self.assertEqual(playlist_data["name"], "Road Trip")
+        self.assertEqual(playlist_data["track_ids"], ["11", "22", "33", "44"])
         self.assertEqual(client.get_playlist.await_count, 2)
         client.get_playlist.assert_any_await(playlist_id="123", tracks_first=50)
         client.get_playlist.assert_any_await(playlist_id="123", tracks_first=50, tracks_after="c2")
@@ -46,9 +49,9 @@ class DeezerClientTests(unittest.IsolatedAsyncioTestCase):
         service = DeezerClient(arl="token", client=client)
 
         with self.assertLogs("deezer_client", level="ERROR") as logs:
-            track_ids = await service.get_playlist_tracks("404")
+            playlist_data = await service.get_playlist_tracks("404")
 
-        self.assertEqual(track_ids, [])
+        self.assertEqual(playlist_data, {"name": "", "track_ids": []})
         self.assertIn("404", logs.output[0])
 
     async def test_get_playlist_tracks_returns_empty_list_when_playlist_fetch_raises(self) -> None:
@@ -60,9 +63,9 @@ class DeezerClientTests(unittest.IsolatedAsyncioTestCase):
         service = DeezerClient(arl="token", client=client)
 
         with self.assertLogs("deezer_client", level="ERROR") as logs:
-            track_ids = await service.get_playlist_tracks("private")
+            playlist_data = await service.get_playlist_tracks("private")
 
-        self.assertEqual(track_ids, [])
+        self.assertEqual(playlist_data, {"name": "", "track_ids": []})
         self.assertIn("private", logs.output[0])
 
     async def test_update_target_playlist_clears_then_readds_tracks_by_batches(self) -> None:

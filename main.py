@@ -75,10 +75,17 @@ def _deduplicate(items: list[str]) -> list[str]:
     return deduplicated
 
 
+def _default_player_name(player_id: str) -> str:
+    return f"Joueur {player_id.removeprefix('player')}"
+
+
 def build_empty_state() -> dict[str, Any]:
     return {
         "source_pools": {player_id: [] for player_id in PLAYER_IDS},
-        "players": {player_id: [] for player_id in PLAYER_IDS},
+        "players": {
+            player_id: {"name": _default_player_name(player_id), "selection": []}
+            for player_id in PLAYER_IDS
+        },
         "mix": [],
     }
 
@@ -95,7 +102,14 @@ def load_state(state_path: Path = STATE_FILE) -> dict[str, Any]:
 
     state = build_empty_state()
     state["source_pools"].update(data.get("source_pools", {}))
-    state["players"].update(data.get("players", {}))
+    raw_players = data.get("players", {})
+    for player_id in PLAYER_IDS:
+        raw_player = raw_players.get(player_id)
+        if isinstance(raw_player, dict):
+            state["players"][player_id]["name"] = raw_player.get("name") or _default_player_name(player_id)
+            state["players"][player_id]["selection"] = list(raw_player.get("selection", []))
+        elif isinstance(raw_player, list):
+            state["players"][player_id]["selection"] = list(raw_player)
     state["mix"] = list(data.get("mix", []))
     return state
 
@@ -129,8 +143,10 @@ class MixManager:
 
         source_pools: dict[str, list[str]] = {}
         for player_id, playlist_id in self.settings.source_playlists.items():
-            tracks = await self.deezer_client.get_playlist_tracks(playlist_id)
-            source_pools[player_id] = _deduplicate(tracks)
+            playlist_data = await self.deezer_client.get_playlist_tracks(playlist_id)
+            source_pools[player_id] = _deduplicate(list(playlist_data["track_ids"]))
+            if playlist_data["name"]:
+                self.state["players"][player_id]["name"] = playlist_data["name"]
 
         self.state["source_pools"] = source_pools
         return source_pools
@@ -155,13 +171,13 @@ class MixManager:
             selections = self._build_selections(source_pools, balanced=False)
             return await self._publish_mix(selections)
 
-        if not any(self.state["players"].values()):
+        if not any(self.state["players"][player_id]["selection"] for player_id in PLAYER_IDS):
             selections = self._build_selections(source_pools, balanced=True)
             return await self._publish_mix(selections)
 
         selections = {
-            key: list(value)
-            for key, value in self.state["players"].items()
+            player_id: list(self.state["players"][player_id]["selection"])
+            for player_id in PLAYER_IDS
         }
 
         desired_count = self._get_balanced_count(source_pools)
@@ -221,7 +237,8 @@ class MixManager:
             self.settings.target_playlist,
             mixed_tracks,
         )
-        self.state["players"] = selections
+        for player_id in PLAYER_IDS:
+            self.state["players"][player_id]["selection"] = list(selections[player_id])
         self.state["mix"] = mixed_tracks
         save_state(self.state, self.state_path)
         return await self.get_status()
