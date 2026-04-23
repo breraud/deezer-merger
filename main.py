@@ -1,0 +1,232 @@
+import logging
+import random
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from deezer_client import DeezerClient
+
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - optional until dependencies are installed
+    def load_dotenv(*_args: Any, **_kwargs: Any) -> bool:
+        return False
+
+
+LOGGER = logging.getLogger(__name__)
+ROOT_DIR = Path(__file__).resolve().parent
+STATIC_DIR = ROOT_DIR / "static"
+PLAYER_IDS = ("player1", "player2", "player3")
+PLAYER_ENV_KEYS = {
+    "player1": "PLAYLIST_SOURCE_1",
+    "player2": "PLAYLIST_SOURCE_2",
+    "player3": "PLAYLIST_SOURCE_3",
+}
+
+
+@dataclass
+class Settings:
+    deezer_arl: str
+    source_playlists: dict[str, str]
+    target_playlist: str
+
+    @classmethod
+    def from_env(cls) -> "Settings":
+        import os
+
+        load_dotenv()
+
+        deezer_arl = os.getenv("DEEZER_ARL", "").strip()
+        target_playlist = os.getenv("PLAYLIST_CIBLE", "").strip()
+        source_playlists = {
+            player_id: os.getenv(env_key, "").strip()
+            for player_id, env_key in PLAYER_ENV_KEYS.items()
+        }
+
+        missing = [
+            name
+            for name, value in {
+                "DEEZER_ARL": deezer_arl,
+                "PLAYLIST_CIBLE": target_playlist,
+                **{env_key: source_playlists[player_id] for player_id, env_key in PLAYER_ENV_KEYS.items()},
+            }.items()
+            if not value
+        ]
+        if missing:
+            raise ValueError(f"Missing environment variables: {', '.join(missing)}")
+
+        return cls(
+            deezer_arl=deezer_arl,
+            source_playlists=source_playlists,
+            target_playlist=target_playlist,
+        )
+
+
+def _deduplicate(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduplicated: list[str] = []
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        deduplicated.append(item)
+    return deduplicated
+
+
+class MixManager:
+    def __init__(
+        self,
+        settings: Settings,
+        deezer_client: DeezerClient,
+        tracks_per_player: int = 20,
+        randomizer: random.Random | None = None,
+    ) -> None:
+        self.settings = settings
+        self.deezer_client = deezer_client
+        self.tracks_per_player = tracks_per_player
+        self.randomizer = randomizer or random.Random()
+        self.state: dict[str, Any] = {
+            "source_pools": {player_id: [] for player_id in PLAYER_IDS},
+            "players": {player_id: [] for player_id in PLAYER_IDS},
+            "mix": [],
+        }
+
+    async def load_source_pools(self, force: bool = False) -> dict[str, list[str]]:
+        if not force and all(self.state["source_pools"].values()):
+            return self.state["source_pools"]
+
+        source_pools: dict[str, list[str]] = {}
+        for player_id, playlist_id in self.settings.source_playlists.items():
+            tracks = await self.deezer_client.get_playlist_tracks(playlist_id)
+            source_pools[player_id] = _deduplicate(tracks)
+
+        self.state["source_pools"] = source_pools
+        return source_pools
+
+    async def generate_mix(self) -> dict[str, Any]:
+        source_pools = await self.load_source_pools(force=True)
+        selections = self._build_initial_selections(source_pools)
+        return await self._publish_mix(selections)
+
+    async def refresh_player(self, player_id: str) -> dict[str, Any]:
+        if player_id not in PLAYER_IDS:
+            raise ValueError(f"Unknown player_id: {player_id}")
+
+        source_pools = await self.load_source_pools(force=False)
+        if not any(self.state["players"].values()):
+            selections = self._build_initial_selections(source_pools)
+            return await self._publish_mix(selections)
+
+        selections = {
+            key: list(value)
+            for key, value in self.state["players"].items()
+        }
+
+        locked_tracks = {
+            track_id
+            for current_player, track_ids in selections.items()
+            if current_player != player_id
+            for track_id in track_ids
+        }
+        desired_count = max(
+            len(selections.get(player_id, [])),
+            min(self.tracks_per_player, len(source_pools[player_id])),
+        )
+        available_tracks = [
+            track_id
+            for track_id in source_pools[player_id]
+            if track_id not in locked_tracks and track_id not in selections.get(player_id, [])
+        ]
+        selections[player_id] = available_tracks[:desired_count]
+        return await self._publish_mix(selections)
+
+    async def get_status(self) -> dict[str, Any]:
+        return {
+            "source_pools": self.state["source_pools"],
+            "players": self.state["players"],
+            "mix": self.state["mix"],
+        }
+
+    def _build_initial_selections(self, source_pools: dict[str, list[str]]) -> dict[str, list[str]]:
+        used_tracks: set[str] = set()
+        selections: dict[str, list[str]] = {}
+
+        for player_id in PLAYER_IDS:
+            available_tracks = [
+                track_id
+                for track_id in source_pools[player_id]
+                if track_id not in used_tracks
+            ]
+            selection = available_tracks[: self.tracks_per_player]
+            selections[player_id] = selection
+            used_tracks.update(selection)
+
+        return selections
+
+    async def _publish_mix(self, selections: dict[str, list[str]]) -> dict[str, Any]:
+        mixed_tracks = [
+            track_id
+            for player_id in PLAYER_IDS
+            for track_id in selections[player_id]
+        ]
+        self.randomizer.shuffle(mixed_tracks)
+        await self.deezer_client.update_target_playlist(
+            self.settings.target_playlist,
+            mixed_tracks,
+        )
+        self.state["players"] = selections
+        self.state["mix"] = mixed_tracks
+        return await self.get_status()
+
+
+def create_app(manager: MixManager | Any | None = None):
+    from fastapi import FastAPI, HTTPException
+    from fastapi.responses import FileResponse
+    from fastapi.staticfiles import StaticFiles
+
+    app = FastAPI(title="Deezer Mix & Refresh")
+
+    if manager is None:
+        settings = Settings.from_env()
+        manager = MixManager(
+            settings=settings,
+            deezer_client=DeezerClient(arl=settings.deezer_arl),
+        )
+
+    app.state.manager = manager
+
+    if STATIC_DIR.exists():
+        app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+        @app.get("/", include_in_schema=False)
+        async def index() -> FileResponse:
+            return FileResponse(STATIC_DIR / "index.html")
+
+    @app.get("/api/status")
+    async def get_status() -> dict[str, Any]:
+        return await app.state.manager.get_status()
+
+    @app.post("/api/generate")
+    async def generate_mix() -> dict[str, Any]:
+        try:
+            return await app.state.manager.generate_mix()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # pragma: no cover - external service errors
+            LOGGER.exception("Unable to generate mix")
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    @app.post("/api/refresh/{player_id}")
+    async def refresh_player(player_id: str) -> dict[str, Any]:
+        try:
+            return await app.state.manager.refresh_player(player_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # pragma: no cover - external service errors
+            LOGGER.exception("Unable to refresh player selection")
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return app
+
+
+app = create_app() if __name__ != "__main__" else None
