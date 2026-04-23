@@ -185,6 +185,14 @@ class MixManager:
         save_state(self.state, self.state_path)
         return await self.get_status()
 
+    async def refresh_player_source_cache(self, player_id: str) -> None:
+        playlist_id = self.settings.source_playlists[player_id]
+        playlist_data = await self.deezer_client.get_playlist_tracks(playlist_id)
+        self.state["source_pools"][player_id] = _deduplicate(list(playlist_data["tracks"]))
+        if playlist_data["name"]:
+            self.state["players"][player_id]["name"] = playlist_data["name"]
+        save_state(self.state, self.state_path)
+
     async def generate_mix(self, balanced: bool = False) -> dict[str, Any]:
         source_pools = self.get_cached_source_pools()
         selections = self._build_selections(source_pools, balanced=balanced)
@@ -194,6 +202,7 @@ class MixManager:
         if player_id not in PLAYER_IDS:
             raise ValueError(f"Unknown player_id: {player_id}")
 
+        await self.refresh_player_source_cache(player_id)
         source_pools = self.get_cached_source_pools()
         if not balanced:
             selections = self._build_selections(source_pools, balanced=False)

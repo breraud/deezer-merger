@@ -131,7 +131,7 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
 
         deezer_client.get_playlist_tracks.assert_not_awaited()
 
-    async def test_refresh_player_uses_only_cached_state_without_refetching_sources(self) -> None:
+    async def test_refresh_player_fetches_fresh_data_for_targeted_playlist_only(self) -> None:
         with patch.dict(os.environ, ENV, clear=True):
             from main import MixManager, Settings
 
@@ -153,10 +153,17 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
                     "player3": {"name": "Gamma", "selection": [self.make_track("3")]},
                 }
                 manager.state["mix"] = [self.make_track("1"), self.make_track("2"), self.make_track("3")]
+                deezer_client.get_playlist_tracks.return_value = {
+                    "name": "Alpha Fresh",
+                    "tracks": [self.make_track("1"), self.make_track("10"), self.make_track("11")],
+                }
 
-                await manager.refresh_player("player1", balanced=False)
+                payload = await manager.refresh_player("player1", balanced=False)
 
-        deezer_client.get_playlist_tracks.assert_not_awaited()
+        deezer_client.get_playlist_tracks.assert_awaited_once_with("101")
+        self.assertEqual(payload["players"]["player1"]["name"], "Alpha Fresh")
+        self.assertEqual([track["id"] for track in payload["source_pools"]["player1"]], ["1", "10", "11"])
+        deezer_client.update_target_playlist.assert_awaited_once_with("999", [track["id"] for track in payload["mix"]])
 
     async def test_generate_mix_full_merge_uses_entire_cached_pools(self) -> None:
         with patch.dict(os.environ, ENV, clear=True):
@@ -326,9 +333,21 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
                 self.make_track("3"), self.make_track("4"), self.make_track("12"),
                 self.make_track("5"), self.make_track("6"), self.make_track("13"),
             ]
+            deezer_client.get_playlist_tracks.return_value = {
+                "name": "Alpha Fresh",
+                "tracks": [
+                    self.make_track("1"),
+                    self.make_track("2"),
+                    self.make_track("10"),
+                    self.make_track("11"),
+                    self.make_track("14"),
+                ],
+            }
 
             payload = await manager.refresh_player("player1", balanced=True)
 
+        deezer_client.get_playlist_tracks.assert_awaited_once_with("101")
+        self.assertEqual(payload["players"]["player1"]["name"], "Alpha Fresh")
         self.assertEqual([track["id"] for track in payload["players"]["player2"]["selection"]], ["3", "4", "12"])
         self.assertEqual([track["id"] for track in payload["players"]["player3"]["selection"]], ["5", "6", "13"])
         self.assertEqual([track["id"] for track in payload["players"]["player1"]["selection"]], ["10", "11", "14"])
