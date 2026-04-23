@@ -1,3 +1,4 @@
+import json
 import logging
 import random
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ except ImportError:  # pragma: no cover - optional until dependencies are instal
 LOGGER = logging.getLogger(__name__)
 ROOT_DIR = Path(__file__).resolve().parent
 STATIC_DIR = ROOT_DIR / "static"
+STATE_FILE = ROOT_DIR / "state.json"
 PLAYER_IDS = ("player1", "player2", "player3")
 PLAYER_ENV_KEYS = {
     "player1": "PLAYLIST_SOURCE_1",
@@ -73,6 +75,38 @@ def _deduplicate(items: list[str]) -> list[str]:
     return deduplicated
 
 
+def build_empty_state() -> dict[str, Any]:
+    return {
+        "source_pools": {player_id: [] for player_id in PLAYER_IDS},
+        "players": {player_id: [] for player_id in PLAYER_IDS},
+        "mix": [],
+    }
+
+
+def load_state(state_path: Path = STATE_FILE) -> dict[str, Any]:
+    if not state_path.exists():
+        return build_empty_state()
+
+    try:
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        LOGGER.exception("Unable to read state file at %s", state_path)
+        return build_empty_state()
+
+    state = build_empty_state()
+    state["source_pools"].update(data.get("source_pools", {}))
+    state["players"].update(data.get("players", {}))
+    state["mix"] = list(data.get("mix", []))
+    return state
+
+
+def save_state(state_data: dict[str, Any], state_path: Path = STATE_FILE) -> None:
+    state_path.write_text(
+        json.dumps(state_data, indent=2, ensure_ascii=True),
+        encoding="utf-8",
+    )
+
+
 class MixManager:
     def __init__(
         self,
@@ -80,16 +114,14 @@ class MixManager:
         deezer_client: DeezerClient,
         tracks_per_player: int = 20,
         randomizer: random.Random | None = None,
+        state_path: Path = STATE_FILE,
     ) -> None:
         self.settings = settings
         self.deezer_client = deezer_client
         self.tracks_per_player = tracks_per_player
         self.randomizer = randomizer or random.Random()
-        self.state: dict[str, Any] = {
-            "source_pools": {player_id: [] for player_id in PLAYER_IDS},
-            "players": {player_id: [] for player_id in PLAYER_IDS},
-            "mix": [],
-        }
+        self.state_path = state_path
+        self.state: dict[str, Any] = load_state(self.state_path)
 
     async def load_source_pools(self, force: bool = False) -> dict[str, list[str]]:
         if not force and all(self.state["source_pools"].values()):
@@ -104,12 +136,9 @@ class MixManager:
         return source_pools
 
     async def reload_all_data(self) -> dict[str, Any]:
-        self.state = {
-            "source_pools": {player_id: [] for player_id in PLAYER_IDS},
-            "players": {player_id: [] for player_id in PLAYER_IDS},
-            "mix": [],
-        }
+        self.state = build_empty_state()
         await self.load_source_pools(force=True)
+        save_state(self.state, self.state_path)
         return await self.get_status()
 
     async def generate_mix(self, balanced: bool = False) -> dict[str, Any]:
@@ -194,6 +223,7 @@ class MixManager:
         )
         self.state["players"] = selections
         self.state["mix"] = mixed_tracks
+        save_state(self.state, self.state_path)
         return await self.get_status()
 
 

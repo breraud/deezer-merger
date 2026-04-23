@@ -1,5 +1,7 @@
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 
@@ -13,6 +15,62 @@ ENV = {
 
 
 class MainTests(unittest.IsolatedAsyncioTestCase):
+    async def test_load_state_returns_empty_structure_when_file_is_missing(self) -> None:
+        from main import load_state
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state = load_state(Path(tmpdir) / "state.json")
+
+        self.assertEqual(
+            state,
+            {
+                "source_pools": {"player1": [], "player2": [], "player3": []},
+                "players": {"player1": [], "player2": [], "player3": []},
+                "mix": [],
+            },
+        )
+
+    async def test_save_state_and_load_state_round_trip_json_file(self) -> None:
+        from main import load_state, save_state
+
+        payload = {
+            "source_pools": {"player1": ["1"], "player2": ["2"], "player3": []},
+            "players": {"player1": ["1"], "player2": [], "player3": []},
+            "mix": ["1", "2"],
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "state.json"
+            save_state(payload, state_path)
+            loaded_state = load_state(state_path)
+
+        self.assertEqual(loaded_state, payload)
+
+    async def test_generate_mix_persists_updated_state_to_local_json_file(self) -> None:
+        with patch.dict(os.environ, ENV, clear=True):
+            from main import MixManager, Settings
+
+            deezer_client = AsyncMock()
+            with tempfile.TemporaryDirectory() as tmpdir:
+                state_path = Path(tmpdir) / "state.json"
+                manager = MixManager(
+                    settings=Settings.from_env(),
+                    deezer_client=deezer_client,
+                    tracks_per_player=2,
+                    state_path=state_path,
+                )
+                manager.state["source_pools"] = {
+                    "player1": ["1", "2", "3"],
+                    "player2": ["4", "5"],
+                    "player3": ["6", "7", "8", "9"],
+                }
+
+                payload = await manager.generate_mix(balanced=False)
+                saved_state = state_path.read_text(encoding="utf-8")
+
+        self.assertIn("\"mix\"", saved_state)
+        self.assertEqual(payload["mix"], manager.state["mix"])
+
     async def test_generate_mix_full_merge_uses_entire_cached_pools(self) -> None:
         with patch.dict(os.environ, ENV, clear=True):
             from main import MixManager, Settings
