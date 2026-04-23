@@ -1,0 +1,15 @@
+services:
+  deezer-app:
+    build:
+      context: .
+    container_name: deezer-mix-refresh
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      STATE_FILE_PATH: /app/state.json
+    volumes:
+      - ./.env:/app/.env:ro
+      - ./state.json:/app/state.json
+    ports:
+      - "127.0.0.1:8000:8000"
