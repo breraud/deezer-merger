@@ -1,0 +1,16 @@
+[Unit]
+Description=Deezer Mix & Refresh FastAPI service
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/deezer_sync
+EnvironmentFile=/opt/deezer_sync/.env
+ExecStart=/opt/deezer_sync/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
