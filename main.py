@@ -115,9 +115,16 @@ def load_state(state_path: Path = STATE_FILE) -> dict[str, Any]:
         return build_empty_state()
 
     try:
-        data = json.loads(state_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        LOGGER.exception("Unable to read state file at %s", state_path)
+        content = state_path.read_text(encoding="utf-8")
+        if not content.strip():
+            LOGGER.warning("State file at %s is empty. Falling back to default state.", state_path)
+            return build_empty_state()
+        data = json.loads(content)
+    except OSError:
+        LOGGER.warning("Unable to read state file at %s. Falling back to default state.", state_path)
+        return build_empty_state()
+    except json.JSONDecodeError:
+        LOGGER.warning("State file at %s is invalid JSON. Falling back to default state.", state_path)
         return build_empty_state()
 
     state = build_empty_state()

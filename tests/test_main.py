@@ -41,6 +41,48 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
             },
         )
 
+    async def test_load_state_returns_empty_structure_when_file_is_empty(self) -> None:
+        from main import load_state
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "state.json"
+            state_path.write_text("", encoding="utf-8")
+            state = load_state(state_path)
+
+        self.assertEqual(
+            state,
+            {
+                "source_pools": {"player1": [], "player2": [], "player3": []},
+                "players": {
+                    "player1": {"name": "Joueur 1", "selection": []},
+                    "player2": {"name": "Joueur 2", "selection": []},
+                    "player3": {"name": "Joueur 3", "selection": []},
+                },
+                "mix": [],
+            },
+        )
+
+    async def test_load_state_returns_empty_structure_when_file_contains_invalid_json(self) -> None:
+        from main import load_state
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "state.json"
+            state_path.write_text("{invalid", encoding="utf-8")
+            state = load_state(state_path)
+
+        self.assertEqual(
+            state,
+            {
+                "source_pools": {"player1": [], "player2": [], "player3": []},
+                "players": {
+                    "player1": {"name": "Joueur 1", "selection": []},
+                    "player2": {"name": "Joueur 2", "selection": []},
+                    "player3": {"name": "Joueur 3", "selection": []},
+                },
+                "mix": [],
+            },
+        )
+
     async def test_save_state_and_load_state_round_trip_json_file(self) -> None:
         from main import load_state, save_state
 
