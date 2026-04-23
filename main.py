@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import random
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,13 +18,19 @@ except ImportError:  # pragma: no cover - optional until dependencies are instal
 LOGGER = logging.getLogger(__name__)
 ROOT_DIR = Path(__file__).resolve().parent
 STATIC_DIR = ROOT_DIR / "static"
-STATE_FILE = ROOT_DIR / "state.json"
 PLAYER_IDS = ("player1", "player2", "player3")
 PLAYER_ENV_KEYS = {
     "player1": "PLAYLIST_SOURCE_1",
     "player2": "PLAYLIST_SOURCE_2",
     "player3": "PLAYLIST_SOURCE_3",
 }
+
+
+def get_state_file_path() -> Path:
+    raw_path = os.getenv("STATE_FILE_PATH", "").strip()
+    if raw_path:
+        return Path(raw_path).expanduser()
+    return ROOT_DIR / "state.json"
 
 
 @dataclass
@@ -110,7 +117,8 @@ def build_empty_state() -> dict[str, Any]:
     }
 
 
-def load_state(state_path: Path = STATE_FILE) -> dict[str, Any]:
+def load_state(state_path: Path | None = None) -> dict[str, Any]:
+    state_path = state_path or get_state_file_path()
     if not state_path.exists():
         return build_empty_state()
 
@@ -143,7 +151,8 @@ def load_state(state_path: Path = STATE_FILE) -> dict[str, Any]:
     return state
 
 
-def save_state(state_data: dict[str, Any], state_path: Path = STATE_FILE) -> None:
+def save_state(state_data: dict[str, Any], state_path: Path | None = None) -> None:
+    state_path = state_path or get_state_file_path()
     state_path.write_text(
         json.dumps(state_data, indent=2, ensure_ascii=True),
         encoding="utf-8",
@@ -157,13 +166,13 @@ class MixManager:
         deezer_client: DeezerClient,
         tracks_per_player: int = 20,
         randomizer: random.Random | None = None,
-        state_path: Path = STATE_FILE,
+        state_path: Path | None = None,
     ) -> None:
         self.settings = settings
         self.deezer_client = deezer_client
         self.tracks_per_player = tracks_per_player
         self.randomizer = randomizer or random.Random()
-        self.state_path = state_path
+        self.state_path = state_path or get_state_file_path()
         self.state: dict[str, Any] = load_state(self.state_path)
 
     async def load_source_pools(self, force: bool = False) -> dict[str, list[dict[str, str]]]:

@@ -15,6 +15,17 @@ ENV = {
 
 
 class MainTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        self._state_dir = tempfile.TemporaryDirectory()
+        self.test_state_path = Path(self._state_dir.name) / "test_state.json"
+        self.env = {
+            **ENV,
+            "STATE_FILE_PATH": str(self.test_state_path),
+        }
+
+    def tearDown(self) -> None:
+        self._state_dir.cleanup()
+
     def make_track(self, track_id: str, title: str | None = None, artist: str = "Artist") -> dict[str, str]:
         return {
             "id": track_id,
@@ -107,8 +118,28 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(loaded_state, payload)
 
+    async def test_mix_manager_uses_state_file_path_from_environment_by_default(self) -> None:
+        with patch.dict(os.environ, self.env, clear=True):
+            from main import MixManager, Settings
+
+            deezer_client = AsyncMock()
+            manager = MixManager(
+                settings=Settings.from_env(),
+                deezer_client=deezer_client,
+            )
+            manager.state["source_pools"] = {
+                "player1": [self.make_track("1")],
+                "player2": [self.make_track("2")],
+                "player3": [self.make_track("3")],
+            }
+
+            await manager.generate_mix(balanced=False)
+
+        self.assertEqual(manager.state_path, self.test_state_path)
+        self.assertTrue(self.test_state_path.exists())
+
     async def test_generate_mix_persists_updated_state_to_local_json_file(self) -> None:
-        with patch.dict(os.environ, ENV, clear=True):
+        with patch.dict(os.environ, self.env, clear=True):
             from main import MixManager, Settings
 
             deezer_client = AsyncMock()
@@ -135,7 +166,7 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["mix"], manager.state["mix"])
 
     async def test_generate_mix_uses_only_cached_state_without_refetching_sources(self) -> None:
-        with patch.dict(os.environ, ENV, clear=True):
+        with patch.dict(os.environ, self.env, clear=True):
             from main import MixManager, Settings
 
             deezer_client = AsyncMock()
@@ -157,7 +188,7 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
         deezer_client.get_playlist_tracks.assert_not_awaited()
 
     async def test_get_status_rebuilds_mix_when_source_pools_exist_but_mix_is_empty(self) -> None:
-        with patch.dict(os.environ, ENV, clear=True):
+        with patch.dict(os.environ, self.env, clear=True):
             from main import MixManager, Settings
 
             deezer_client = AsyncMock()
@@ -189,7 +220,7 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
         deezer_client.update_target_playlist.assert_awaited_once_with("999", [track["id"] for track in payload["mix"]])
 
     async def test_generate_mix_fails_when_cache_is_empty_instead_of_refetching(self) -> None:
-        with patch.dict(os.environ, ENV, clear=True):
+        with patch.dict(os.environ, self.env, clear=True):
             from main import MixManager, Settings
 
             deezer_client = AsyncMock()
@@ -206,7 +237,7 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
         deezer_client.get_playlist_tracks.assert_not_awaited()
 
     async def test_refresh_player_fetches_fresh_data_for_targeted_playlist_only(self) -> None:
-        with patch.dict(os.environ, ENV, clear=True):
+        with patch.dict(os.environ, self.env, clear=True):
             from main import MixManager, Settings
 
             deezer_client = AsyncMock()
@@ -240,7 +271,7 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
         deezer_client.update_target_playlist.assert_awaited_once_with("999", [track["id"] for track in payload["mix"]])
 
     async def test_generate_mix_full_merge_uses_entire_cached_pools(self) -> None:
-        with patch.dict(os.environ, ENV, clear=True):
+        with patch.dict(os.environ, self.env, clear=True):
             from main import MixManager, Settings
 
             deezer_client = AsyncMock()
@@ -264,7 +295,7 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
         deezer_client.update_target_playlist.assert_awaited_once_with("999", [track["id"] for track in payload["mix"]])
 
     async def test_generate_mix_balanced_samples_using_smallest_playlist_size(self) -> None:
-        with patch.dict(os.environ, ENV, clear=True):
+        with patch.dict(os.environ, self.env, clear=True):
             from main import MixManager, Settings
 
             deezer_client = AsyncMock()
@@ -301,7 +332,7 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(randomizer.sample_call_count, 3)
 
     async def test_reload_all_data_resets_state_and_reloads_source_pools(self) -> None:
-        with patch.dict(os.environ, ENV, clear=True):
+        with patch.dict(os.environ, self.env, clear=True):
             from main import MixManager, Settings
 
             deezer_client = AsyncMock()
@@ -339,7 +370,7 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["mix"], [])
 
     async def test_generate_mix_balanced_reuses_smallest_pool_size_after_reload_cache(self) -> None:
-        with patch.dict(os.environ, ENV, clear=True):
+        with patch.dict(os.environ, self.env, clear=True):
             from main import MixManager, Settings
 
             deezer_client = AsyncMock()
@@ -374,7 +405,7 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
         deezer_client.update_target_playlist.assert_awaited_once_with("999", [track["id"] for track in payload["mix"]])
 
     async def test_refresh_player_replaces_only_targeted_selection_in_balanced_mode(self) -> None:
-        with patch.dict(os.environ, ENV, clear=True):
+        with patch.dict(os.environ, self.env, clear=True):
             from main import MixManager, Settings
 
             deezer_client = AsyncMock()
@@ -430,8 +461,19 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ApiTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        self._state_dir = tempfile.TemporaryDirectory()
+        self.test_state_path = Path(self._state_dir.name) / "test_state.json"
+        self.env = {
+            **ENV,
+            "STATE_FILE_PATH": str(self.test_state_path),
+        }
+
+    def tearDown(self) -> None:
+        self._state_dir.cleanup()
+
     async def test_app_auto_loads_deezer_data_when_state_is_empty(self) -> None:
-        with patch.dict(os.environ, ENV, clear=True):
+        with patch.dict(os.environ, self.env, clear=True):
             import httpx
             from main import create_app
 
@@ -474,7 +516,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.json()["source_pools"]["player1"][0]["id"], "1")
 
     async def test_endpoints_return_status_payload(self) -> None:
-        with patch.dict(os.environ, ENV, clear=True):
+        with patch.dict(os.environ, self.env, clear=True):
             import httpx
             from main import create_app
 
