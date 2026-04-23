@@ -111,6 +111,11 @@ button.primary {
   background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
 }
 
+button.danger {
+  color: white;
+  background: linear-gradient(135deg, #db5a2c 0%, #9f261e 100%);
+}
+
 .grid {
   display: grid;
   grid-template-columns: 1.2fr 1fr;
@@ -147,6 +152,20 @@ button.primary {
   border-radius: 22px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.42);
+}
+
+.player-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.player-count {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.78rem;
+  color: var(--muted);
 }
 
 .track-list {

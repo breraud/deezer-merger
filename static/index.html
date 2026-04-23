@@ -18,6 +18,7 @@
         Le serveur conserve l’état du mix courant, repousse la playlist cible sur Deezer et permet un refresh chirurgical par joueur.
       </p>
       <div class="actions">
+        <button id="reset-button" class="danger">🔄 Reset Complet & Sync Deezer</button>
         <button id="generate-button" class="primary">Generer un nouveau Mix</button>
         <button data-player="player1">Rafraichir Joueur 1</button>
         <button data-player="player2">Rafraichir Joueur 2</button>
@@ -41,15 +42,24 @@
         </div>
         <div class="players">
           <section class="player-card">
-            <h3>Joueur 1</h3>
+            <div class="player-header">
+              <h3>Joueur 1</h3>
+              <span id="player1-count" class="player-count">0 titres charges</span>
+            </div>
             <ul id="player1-list" class="track-list compact"></ul>
           </section>
           <section class="player-card">
-            <h3>Joueur 2</h3>
+            <div class="player-header">
+              <h3>Joueur 2</h3>
+              <span id="player2-count" class="player-count">0 titres charges</span>
+            </div>
             <ul id="player2-list" class="track-list compact"></ul>
           </section>
           <section class="player-card">
-            <h3>Joueur 3</h3>
+            <div class="player-header">
+              <h3>Joueur 3</h3>
+              <span id="player3-count" class="player-count">0 titres charges</span>
+            </div>
             <ul id="player3-list" class="track-list compact"></ul>
           </section>
         </div>

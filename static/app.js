@@ -6,6 +6,11 @@ const playerLists = {
   player2: document.querySelector("#player2-list"),
   player3: document.querySelector("#player3-list"),
 };
+const playerCounts = {
+  player1: document.querySelector("#player1-count"),
+  player2: document.querySelector("#player2-count"),
+  player3: document.querySelector("#player3-count"),
+};
 const buttons = Array.from(document.querySelectorAll("button"));
 
 function setLoading(isLoading, message) {
@@ -38,12 +43,18 @@ function renderTrackList(container, tracks) {
 function renderState(payload) {
   const mix = payload.mix || [];
   const players = payload.players || {};
+  const sourcePools = payload.source_pools || {};
 
   mixCount.textContent = `${mix.length} titres`;
   renderTrackList(mixList, mix);
 
   Object.entries(playerLists).forEach(([playerId, element]) => {
     renderTrackList(element, players[playerId] || []);
+  });
+
+  Object.entries(playerCounts).forEach(([playerId, element]) => {
+    const totalLoaded = (sourcePools[playerId] || []).length;
+    element.textContent = `${totalLoaded} titres charges`;
   });
 }
 
@@ -90,6 +101,10 @@ async function triggerAction(path, pendingMessage, successMessage) {
 
 document.querySelector("#generate-button").addEventListener("click", () => {
   triggerAction("/api/generate", "Generation du mix et mise a jour Deezer...", "Mix global regenere.");
+});
+
+document.querySelector("#reset-button").addEventListener("click", () => {
+  triggerAction("/api/reset", "Reset complet, rechargement des playlists et synchro Deezer...", "Reset complet termine.");
 });
 
 document.querySelectorAll("[data-player]").forEach((button) => {

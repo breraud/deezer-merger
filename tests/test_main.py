@@ -13,6 +13,34 @@ ENV = {
 
 
 class MainTests(unittest.IsolatedAsyncioTestCase):
+    async def test_reload_all_data_resets_state_and_reloads_source_pools(self) -> None:
+        with patch.dict(os.environ, ENV, clear=True):
+            from main import MixManager, Settings
+
+            deezer_client = AsyncMock()
+            deezer_client.get_playlist_tracks.side_effect = [
+                ["11", "12"],
+                ["21", "22", "22"],
+                [],
+            ]
+
+            manager = MixManager(
+                settings=Settings.from_env(),
+                deezer_client=deezer_client,
+                tracks_per_player=2,
+            )
+            manager.state["source_pools"] = {"player1": ["old"], "player2": ["old"], "player3": ["old"]}
+            manager.state["players"] = {"player1": ["x"], "player2": ["y"], "player3": ["z"]}
+            manager.state["mix"] = ["x", "y", "z"]
+
+            payload = await manager.reload_all_data()
+
+        self.assertEqual(payload["source_pools"]["player1"], ["11", "12"])
+        self.assertEqual(payload["source_pools"]["player2"], ["21", "22"])
+        self.assertEqual(payload["source_pools"]["player3"], [])
+        self.assertEqual(payload["players"], {"player1": [], "player2": [], "player3": []})
+        self.assertEqual(payload["mix"], [])
+
     async def test_generate_mix_builds_unique_selection_and_updates_target(self) -> None:
         with patch.dict(os.environ, ENV, clear=True):
             from main import MixManager, Settings
@@ -78,14 +106,25 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
             from main import create_app
 
             class FakeManager:
+                def __init__(self):
+                    self.source_pools = {}
+
                 async def get_status(self):
-                    return {"mix": [], "players": {}, "source_pools": {}}
+                    return {"mix": [], "players": {}, "source_pools": self.source_pools}
 
                 async def generate_mix(self):
-                    return {"mix": ["1"], "players": {"player1": ["1"]}}
+                    return {
+                        "mix": ["1"],
+                        "players": {"player1": ["1"], "player2": [], "player3": []},
+                        "source_pools": self.source_pools,
+                    }
 
                 async def refresh_player(self, _player_id: str):
                     return {"mix": ["2"], "players": {"player2": ["2"]}}
+
+                async def reload_all_data(self):
+                    self.source_pools = {"player1": ["1"], "player2": [], "player3": []}
+                    return {"mix": [], "players": {}, "source_pools": self.source_pools}
 
             transport = httpx.ASGITransport(app=create_app(manager=FakeManager()))
             async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -100,6 +139,10 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
                 response = await client.post("/api/refresh/player2")
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.json()["mix"], ["2"])
+
+                response = await client.post("/api/reset")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()["source_pools"]["player1"], ["1"])
 
 
 if __name__ == "__main__":

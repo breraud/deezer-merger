@@ -103,8 +103,17 @@ class MixManager:
         self.state["source_pools"] = source_pools
         return source_pools
 
+    async def reload_all_data(self) -> dict[str, Any]:
+        self.state = {
+            "source_pools": {player_id: [] for player_id in PLAYER_IDS},
+            "players": {player_id: [] for player_id in PLAYER_IDS},
+            "mix": [],
+        }
+        await self.load_source_pools(force=True)
+        return await self.get_status()
+
     async def generate_mix(self) -> dict[str, Any]:
-        source_pools = await self.load_source_pools(force=True)
+        source_pools = await self.load_source_pools(force=False)
         selections = self._build_initial_selections(source_pools)
         return await self._publish_mix(selections)
 
@@ -224,6 +233,17 @@ def create_app(manager: MixManager | Any | None = None):
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:  # pragma: no cover - external service errors
             LOGGER.exception("Unable to refresh player selection")
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    @app.post("/api/reset")
+    async def reset_data() -> dict[str, Any]:
+        try:
+            await app.state.manager.reload_all_data()
+            return await app.state.manager.generate_mix()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # pragma: no cover - external service errors
+            LOGGER.exception("Unable to reset data and regenerate mix")
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return app
