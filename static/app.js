@@ -1,183 +1,362 @@
-const statusMessage = document.querySelector("#status-message");
-const mixCount = document.querySelector("#mix-count");
-const mixList = document.querySelector("#mix-list");
-const balancedToggle = document.querySelector("#balanced-toggle");
-const playerLists = {
-  player1: document.querySelector("#player1-list"),
-  player2: document.querySelector("#player2-list"),
-  player3: document.querySelector("#player3-list"),
-};
-const playerTitles = {
-  player1: document.querySelector("#player1-title"),
-  player2: document.querySelector("#player2-title"),
-  player3: document.querySelector("#player3-title"),
-};
-const playerCounts = {
-  player1: document.querySelector("#player1-count"),
-  player2: document.querySelector("#player2-count"),
-  player3: document.querySelector("#player3-count"),
-};
-const refreshButtons = {
-  player1: document.querySelector("#refresh-player1-button"),
-  player2: document.querySelector("#refresh-player2-button"),
-  player3: document.querySelector("#refresh-player3-button"),
-};
-const buttons = Array.from(document.querySelectorAll("button"));
-let currentPlayerNames = {
-  player1: "Playlist 1",
-  player2: "Playlist 2",
-  player3: "Playlist 3",
-};
+// Interface de Deezer Mix. Tout texte venant de Deezer (titres, artistes, noms
+// de playlist) passe par textContent : un titre contenant du HTML reste du
+// texte.
 
-function setLoading(isLoading, message) {
-  buttons.forEach((button) => {
-    button.disabled = isLoading;
-  });
-  if (message) {
-    statusMessage.textContent = message;
-  }
+const PLAYER_IDS = ["player1", "player2", "player3"];
+const BALANCED_STORAGE_KEY = "deezer-mix-balanced";
+
+const syncBadge = document.querySelector("#sync-badge");
+const statusMessage = document.querySelector("#status-message");
+const mixList = document.querySelector("#mix-list");
+const mixCount = document.querySelector("#mix-count");
+const balancedToggle = document.querySelector("#balanced-toggle");
+const generateButton = document.querySelector("#generate-button");
+const resetButton = document.querySelector("#reset-button");
+const resetConfirm = document.querySelector("#reset-confirm");
+const resetConfirmButton = document.querySelector("#reset-confirm-button");
+const resetCancelButton = document.querySelector("#reset-cancel-button");
+const actionButtons = Array.from(document.querySelectorAll("main button"));
+
+const cards = Object.fromEntries(
+  PLAYER_IDS.map((playerId) => {
+    const card = document.querySelector(`.player-card[data-player="${playerId}"]`);
+    return [
+      playerId,
+      {
+        name: card.querySelector('[data-role="name"]'),
+        meta: card.querySelector('[data-role="meta"]'),
+        tracks: card.querySelector('[data-role="tracks"]'),
+        button: card.querySelector('[data-action="refresh"]'),
+      },
+    ];
+  }),
+);
+
+let playerNames = Object.fromEntries(
+  PLAYER_IDS.map((playerId, index) => [playerId, `Playlist ${index + 1}`]),
+);
+
+// --- utilitaires -------------------------------------------------------------
+
+function plural(count, singular, pluralForm = `${singular}s`) {
+  return `${count} ${count > 1 ? pluralForm : singular}`;
 }
 
-function renderTrackList(container, tracks) {
-  container.innerHTML = "";
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
 
-  if (!tracks || tracks.length === 0) {
-    const item = document.createElement("li");
-    item.className = "empty";
-    item.textContent = "Aucun morceau pour le moment.";
-    container.appendChild(item);
+function icon(name) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "icon");
+  svg.setAttribute("aria-hidden", "true");
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", `#i-${name}`);
+  svg.appendChild(use);
+  return svg;
+}
+
+function trackTitle(track) {
+  return track.title || `Titre inconnu (${track.id || "?"})`;
+}
+
+function trackArtist(track) {
+  return track.artist || "Artiste inconnu";
+}
+
+// --- messages ----------------------------------------------------------------
+
+function setBadge(state, text) {
+  syncBadge.dataset.state = state;
+  syncBadge.textContent = text;
+}
+
+function showNotice(tone, text) {
+  statusMessage.replaceChildren();
+  statusMessage.dataset.tone = tone;
+  // Une erreur doit etre annoncee tout de suite ; le reste peut attendre.
+  statusMessage.setAttribute("aria-live", tone === "error" ? "assertive" : "polite");
+  if (tone === "error") statusMessage.appendChild(icon("warning"));
+  if (tone === "success") statusMessage.appendChild(icon("check"));
+  statusMessage.appendChild(el("span", "", text));
+  statusMessage.hidden = false;
+}
+
+function hideNotice() {
+  statusMessage.hidden = true;
+  statusMessage.replaceChildren();
+}
+
+// --- rendu -------------------------------------------------------------------
+
+// La playlist d'origine d'un titre : d'abord la selection publiee, puis le
+// cache des sources (un titre peut figurer dans plusieurs playlists).
+function buildSourceIndex(players, sourcePools) {
+  const index = new Map();
+  for (const lists of [players, sourcePools]) {
+    for (const playerId of PLAYER_IDS) {
+      const list = lists === players ? players[playerId]?.selection : sourcePools[playerId];
+      for (const track of list || []) {
+        if (track?.id && !index.has(track.id)) index.set(track.id, playerId);
+      }
+    }
+  }
+  return index;
+}
+
+function renderMix(mix, sourceIndex, hasLoadedSources) {
+  mixCount.textContent = plural(mix.length, "titre");
+
+  if (mix.length === 0) {
+    const empty = el("li", "empty-state");
+    empty.appendChild(el("strong", "", hasLoadedSources ? "Le mix est vide." : "Aucune playlist chargée."));
+    empty.appendChild(
+      el(
+        "span",
+        "",
+        hasLoadedSources
+          ? "Génère un nouveau mix pour remplir la playlist cible."
+          : "Ouvre « Avancé » et lance la réinitialisation pour le premier chargement.",
+      ),
+    );
+    mixList.replaceChildren(empty);
     return;
   }
 
-  tracks.forEach((track) => {
-    const item = document.createElement("li");
-    const artist = track.artist || "Artiste inconnu";
-    const title = track.title || `Titre inconnu (${track.id || "?"})`;
-    item.innerHTML = `<strong>${artist}</strong> - ${title}`;
-    container.appendChild(item);
+  const items = mix.map((track, position) => {
+    const item = el("li", "mix-item");
+    item.appendChild(el("span", "mix-rank", String(position + 1)));
+    const body = el("span", "track");
+    body.appendChild(el("span", "track-title", trackTitle(track)));
+    body.appendChild(el("span", "track-artist", trackArtist(track)));
+    item.appendChild(body);
+    const source = sourceIndex.get(track.id);
+    if (source) {
+      const chip = el("span", "source-chip", playerNames[source]);
+      chip.dataset.source = source;
+      item.appendChild(chip);
+    }
+    return item;
   });
+  mixList.replaceChildren(...items);
+}
+
+function renderPlayers(players, sourcePools, mix, sourceIndex) {
+  const inMix = Object.fromEntries(PLAYER_IDS.map((playerId) => [playerId, 0]));
+  for (const track of mix) {
+    const source = sourceIndex.get(track.id);
+    if (source) inMix[source] += 1;
+  }
+
+  for (const playerId of PLAYER_IDS) {
+    const card = cards[playerId];
+    const pool = sourcePools[playerId] || [];
+    const name = players[playerId]?.name || playerNames[playerId];
+    playerNames[playerId] = name;
+
+    card.name.textContent = name;
+    card.button.setAttribute("aria-label", `Rafraîchir ${name}`);
+    card.meta.textContent =
+      pool.length === 0
+        ? "Aucun titre chargé."
+        : `${plural(inMix[playerId], "titre")} dans le mix sur ${pool.length} chargé${pool.length > 1 ? "s" : ""}`;
+
+    if (pool.length === 0) {
+      card.tracks.replaceChildren(el("li", "empty", "Aucun titre chargé."));
+    } else {
+      card.tracks.replaceChildren(
+        ...pool.map((track) => {
+          const item = el("li", "track");
+          item.appendChild(el("span", "track-title", trackTitle(track)));
+          item.appendChild(el("span", "track-artist", trackArtist(track)));
+          return item;
+        }),
+      );
+    }
+  }
 }
 
 function renderState(payload) {
   const mix = payload.mix || [];
   const players = payload.players || {};
   const sourcePools = payload.source_pools || {};
-  const hasLoadedSources = Object.values(sourcePools).some((tracks) => (tracks || []).length > 0);
+  const hasLoadedSources = PLAYER_IDS.some((playerId) => (sourcePools[playerId] || []).length > 0);
+  const sourceIndex = buildSourceIndex(players, sourcePools);
 
-  mixCount.textContent = `${mix.length} titres`;
-  renderTrackList(mixList, mix);
-
-  Object.entries(playerLists).forEach(([playerId, element]) => {
-    renderTrackList(element, sourcePools[playerId] || []);
-  });
-
-  Object.entries(playerCounts).forEach(([playerId, element]) => {
-    const totalLoaded = (sourcePools[playerId] || []).length;
-    element.textContent = `${totalLoaded} titres charges`;
-  });
-
-  Object.entries(playerTitles).forEach(([playerId, element]) => {
-    const playerData = players[playerId] || {};
-    const label = playerData.name || currentPlayerNames[playerId] || `Playlist ${playerId.replace("player", "")}`;
-    currentPlayerNames[playerId] = label;
-    element.textContent = label;
-    refreshButtons[playerId].textContent = `Rafraichir ${label}`;
-  });
-
-  if (!hasLoadedSources) {
-    statusMessage.textContent = "Aucune playlist chargee. Cliquez sur Reset Complet & Sync Deezer pour faire le premier chargement.";
-  }
-
+  // Les noms d'abord : les pastilles du mix les reprennent.
+  renderPlayers(players, sourcePools, mix, sourceIndex);
+  renderMix(mix, sourceIndex, hasLoadedSources);
   return hasLoadedSources;
 }
 
-function buildActionUrl(path, includeBalanced = false) {
-  const url = new URL(path, window.location.origin);
-  if (includeBalanced) {
-    url.searchParams.set("balanced", String(balancedToggle.checked));
+// --- appels ------------------------------------------------------------------
+
+async function callApi(path, method = "GET") {
+  let response;
+  try {
+    response = await fetch(path, { method, headers: { Accept: "application/json" } });
+  } catch {
+    throw new Error("Le serveur est injoignable. Vérifie ta connexion puis réessaie.");
   }
-  return `${url.pathname}${url.search}`;
-}
 
-async function callApi(path, options = {}) {
-  const response = await fetch(path, {
-    method: options.method || "GET",
-    headers: {
-      "Content-Type": "application/json",
-    },
-  });
-
-  const payload = await response.json();
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch {
+    // Une page d'erreur HTML (proxy, redemarrage) n'est pas du JSON.
+  }
   if (!response.ok) {
-    throw new Error(payload.detail || "Erreur inconnue");
+    const detail = typeof payload?.detail === "string" ? payload.detail : null;
+    throw new Error(detail || `Le serveur a répondu par une erreur (HTTP ${response.status}). Réessaie dans un instant.`);
   }
   return payload;
 }
 
-async function refreshStatus() {
-  setLoading(true, "Chargement de l'etat courant...");
+function setBusy(activeButton) {
+  for (const button of actionButtons) {
+    button.disabled = activeButton !== null;
+  }
+  balancedToggle.disabled = activeButton !== null;
+  if (!activeButton) return;
+
+  activeButton.setAttribute("aria-busy", "true");
+  const label = activeButton.querySelector('[data-role="label"]');
+  if (label && activeButton.dataset.busyLabel) {
+    activeButton.dataset.idleLabel = label.textContent;
+    label.textContent = activeButton.dataset.busyLabel;
+  }
+}
+
+function clearBusy(activeButton) {
+  if (activeButton) {
+    activeButton.removeAttribute("aria-busy");
+    const label = activeButton.querySelector('[data-role="label"]');
+    if (label && activeButton.dataset.idleLabel) label.textContent = activeButton.dataset.idleLabel;
+  }
+  setBusy(null);
+}
+
+async function runAction({ button, path, pending, success }) {
+  setBusy(button);
+  setBadge("busy", "Synchronisation…");
+  showNotice("info", pending);
+  try {
+    const payload = await callApi(path, "POST");
+    renderState(payload);
+    setBadge("ok", "À jour");
+    showNotice("success", typeof success === "function" ? success(payload) : success);
+    return true;
+  } catch (error) {
+    setBadge("error", "Erreur");
+    showNotice("error", error.message);
+    return false;
+  } finally {
+    clearBusy(button);
+  }
+}
+
+async function loadStatus() {
+  setBadge("busy", "Chargement…");
   try {
     const payload = await callApi("/api/status");
     const hasLoadedSources = renderState(payload);
     if (hasLoadedSources) {
-      statusMessage.textContent = "Etat charge depuis le serveur.";
+      setBadge("ok", "À jour");
+      hideNotice();
+    } else {
+      setBadge("idle", "À charger");
+      showNotice("info", "Aucune playlist chargée : ouvre « Avancé » pour le premier chargement depuis Deezer.");
     }
   } catch (error) {
-    statusMessage.textContent = error.message;
-  } finally {
-    setLoading(false);
+    setBadge("error", "Erreur");
+    showNotice("error", error.message);
   }
 }
 
-async function triggerAction(path, pendingMessage, successMessage) {
-  setLoading(true, pendingMessage);
-  try {
-    const payload = await callApi(path, { method: "POST" });
-    renderState(payload);
-    statusMessage.textContent = typeof successMessage === "function" ? successMessage(payload) : successMessage;
-  } catch (error) {
-    statusMessage.textContent = error.message;
-  } finally {
-    setLoading(false);
-  }
+function withBalanced(path) {
+  return `${path}?balanced=${balancedToggle.checked}`;
 }
 
-document.querySelector("#generate-button").addEventListener("click", () => {
-  triggerAction(
-    buildActionUrl("/api/generate", true),
-    "Generation du mix et mise a jour Deezer...",
-    "Mix global regenere.",
-  );
-});
+// --- actions -----------------------------------------------------------------
 
-document.querySelector("#reset-button").addEventListener("click", () => {
-  triggerAction(
-    "/api/reset",
-    "Reset complet, rechargement des playlists et synchro Deezer...",
-    (payload) => {
-      const names = Object.values(payload.players || {})
-        .map((player) => player.name)
-        .filter(Boolean);
-      return names.length > 0
-        ? `${names.join(", ")} recharges depuis Deezer.`
-        : "Reset complet termine.";
-    },
-  );
-});
-
-document.querySelectorAll("[data-player]").forEach((button) => {
-  button.addEventListener("click", () => {
-    const playerId = button.dataset.player;
-    const playerLabel = currentPlayerNames[playerId] || `Playlist ${playerId.replace("player", "")}`;
-    triggerAction(
-      buildActionUrl(`/api/refresh/${playerId}`, true),
-      `Rafraichissement de ${playerLabel} et synchronisation Deezer...`,
-      (payload) => {
-        const refreshedLabel = payload.players?.[playerId]?.name || playerLabel;
-        return `${refreshedLabel} recharge.`;
-      },
-    );
+generateButton.addEventListener("click", () => {
+  runAction({
+    button: generateButton,
+    path: withBalanced("/api/generate"),
+    pending: "Génération du mix et publication sur Deezer…",
+    success: balancedToggle.checked
+      ? "Nouveau mix publié sur Deezer, en mode équitable."
+      : "Nouveau mix publié sur Deezer.",
   });
 });
 
-refreshStatus();
+for (const playerId of PLAYER_IDS) {
+  const button = cards[playerId].button;
+  button.addEventListener("click", () => {
+    const name = playerNames[playerId];
+    runAction({
+      button,
+      path: withBalanced(`/api/refresh/${playerId}`),
+      pending: `Rechargement de ${name} depuis Deezer…`,
+      success: (payload) => `${payload.players?.[playerId]?.name || name} rechargée, mix republié.`,
+    });
+  });
+}
+
+function closeResetConfirm() {
+  resetConfirm.hidden = true;
+  resetButton.hidden = false;
+}
+
+resetButton.addEventListener("click", () => {
+  resetButton.hidden = true;
+  resetConfirm.hidden = false;
+  // L'action est lourde : le focus va sur l'option sans consequence.
+  resetCancelButton.focus();
+});
+
+resetCancelButton.addEventListener("click", () => {
+  closeResetConfirm();
+  resetButton.focus();
+});
+
+resetConfirm.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closeResetConfirm();
+    resetButton.focus();
+  }
+});
+
+resetConfirmButton.addEventListener("click", async () => {
+  await runAction({
+    button: resetConfirmButton,
+    path: "/api/reset",
+    pending: "Rechargement des trois playlists depuis Deezer…",
+    success: (payload) => {
+      const names = PLAYER_IDS.map((playerId) => payload.players?.[playerId]?.name).filter(Boolean);
+      return names.length > 0
+        ? `Playlists rechargées (${names.join(", ")}), mix republié.`
+        : "Réinitialisation terminée, mix republié.";
+    },
+  });
+  closeResetConfirm();
+});
+
+// Preference d'affichage seulement : le serveur ne retient pas ce mode.
+try {
+  balancedToggle.checked = window.localStorage.getItem(BALANCED_STORAGE_KEY) === "true";
+} catch {
+  // Stockage indisponible (navigation privee) : interrupteur desactive par defaut.
+}
+balancedToggle.addEventListener("change", () => {
+  try {
+    window.localStorage.setItem(BALANCED_STORAGE_KEY, String(balancedToggle.checked));
+  } catch {
+    // Sans stockage, le choix vaut pour la session en cours.
+  }
+});
+
+loadStatus();

@@ -2,72 +2,126 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Playlist Merger</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fbfbfa">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#191918">
+  <meta name="description" content="Fusionne trois playlists Deezer en une playlist commune.">
+  <title>Deezer Mix</title>
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="preload" href="/static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <main class="page">
-    <section class="hero">
-      <p class="eyebrow">Deezer Mix & Refresh</p>
-      <h1>Playlist Merger</h1>
-      <p class="intro">
-        Le serveur conserve l’état du mix courant, repousse la playlist cible sur Deezer et permet un refresh chirurgical par joueur.
-      </p>
-      <label class="mode-toggle" for="balanced-toggle">
-        <input id="balanced-toggle" type="checkbox">
-        <span>Mode equitable (aligner sur la plus petite playlist)</span>
-      </label>
-      <div class="actions">
-        <button id="reset-button" class="danger">🔄 Reset Complet & Sync Deezer</button>
-        <button id="generate-button" class="primary">Generer un nouveau Mix</button>
-        <button id="refresh-player1-button" data-player="player1">Rafraichir Joueur 1</button>
-        <button id="refresh-player2-button" data-player="player2">Rafraichir Joueur 2</button>
-        <button id="refresh-player3-button" data-player="player3">Rafraichir Joueur 3</button>
+  <!-- Icones Phosphor (MIT, voir /static/licenses/Phosphor-MIT.txt), graisse bold. -->
+  <svg xmlns="http://www.w3.org/2000/svg" class="sprite" aria-hidden="true">
+    <symbol id="i-shuffle" viewBox="0 0 256 256"><path d="M240.49,175.51a12,12,0,0,1,0,17l-24,24a12,12,0,0,1-17-17L203,196h-2.09a76.17,76.17,0,0,1-61.85-31.83L97.38,105.78A52.1,52.1,0,0,0,55.06,84H32a12,12,0,0,1,0-24H55.06a76.17,76.17,0,0,1,61.85,31.83l41.71,58.39A52.1,52.1,0,0,0,200.94,172H203l-3.52-3.51a12,12,0,0,1,17-17Zm-95.62-72.62a12,12,0,0,0,16.93-1.13A52,52,0,0,1,200.94,84H203l-3.52,3.51a12,12,0,0,0,17,17l24-24a12,12,0,0,0,0-17l-24-24a12,12,0,0,0-17,17L203,60h-2.09a76,76,0,0,0-57.2,26A12,12,0,0,0,144.87,102.89Zm-33.74,50.22a12,12,0,0,0-16.93,1.13A52,52,0,0,1,55.06,172H32a12,12,0,0,0,0,24H55.06a76,76,0,0,0,57.2-26A12,12,0,0,0,111.13,153.11Z"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 256 256"><path d="M228,48V96a12,12,0,0,1-12,12H168a12,12,0,0,1,0-24h19l-7.8-7.8a75.55,75.55,0,0,0-53.32-22.26h-.43A75.49,75.49,0,0,0,72.39,75.57,12,12,0,1,1,55.61,58.41a99.38,99.38,0,0,1,69.87-28.47H126A99.42,99.42,0,0,1,196.2,59.23L204,67V48a12,12,0,0,1,24,0ZM183.61,180.43a75.49,75.49,0,0,1-53.09,21.63h-.43A75.55,75.55,0,0,1,76.77,179.8L69,172H88a12,12,0,0,0,0-24H40a12,12,0,0,0-12,12v48a12,12,0,0,0,24,0V189l7.8,7.8A99.42,99.42,0,0,0,130,226.06h.56a99.38,99.38,0,0,0,69.87-28.47,12,12,0,0,0-16.78-17.16Z"/></symbol>
+    <symbol id="i-music" viewBox="0 0 256 256"><path d="M215.38,14.54a12,12,0,0,0-10.29-2.18l-128,32A12,12,0,0,0,68,56V159.35A40,40,0,1,0,92,196V113.37l104-26v40A40,40,0,1,0,220,164V24A12,12,0,0,0,215.38,14.54ZM52,212a16,16,0,1,1,16-16A16,16,0,0,1,52,212ZM92,88.63V65.37l104-26V62.63ZM180,180a16,16,0,1,1,16-16A16,16,0,0,1,180,180Z"/></symbol>
+    <symbol id="i-warning" viewBox="0 0 256 256"><path d="M128,20A108,108,0,1,0,236,128,108.12,108.12,0,0,0,128,20Zm0,192a84,84,0,1,1,84-84A84.09,84.09,0,0,1,128,212Zm-12-80V80a12,12,0,0,1,24,0v52a12,12,0,0,1-24,0Zm28,40a16,16,0,1,1-16-16A16,16,0,0,1,144,172Z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 256 256"><path d="M176.49,95.51a12,12,0,0,1,0,17l-56,56a12,12,0,0,1-17,0l-24-24a12,12,0,1,1,17-17L112,143l47.51-47.52A12,12,0,0,1,176.49,95.51ZM236,128A108,108,0,1,1,128,20,108.12,108.12,0,0,1,236,128Zm-24,0a84,84,0,1,0-84,84A84.09,84.09,0,0,0,212,128Z"/></symbol>
+    <symbol id="i-caret" viewBox="0 0 256 256"><path d="M216.49,104.49l-80,80a12,12,0,0,1-17,0l-80-80a12,12,0,0,1,17-17L128,159l71.51-71.52a12,12,0,0,1,17,17Z"/></symbol>
+    <symbol id="i-reset" viewBox="0 0 256 256"><path d="M228,128a100,100,0,0,1-98.66,100H128a99.39,99.39,0,0,1-68.62-27.29,12,12,0,0,1,16.48-17.45,76,76,0,1,0-1.57-109c-.13.13-.25.25-.39.37L54.89,92H72a12,12,0,0,1,0,24H24a12,12,0,0,1-12-12V56a12,12,0,0,1,24,0V76.72L57.48,57.06A100,100,0,0,1,228,128Z"/></symbol>
+  </svg>
+
+  <a class="skip-link" href="#contenu">Aller au contenu</a>
+
+  <header class="app-bar">
+    <div class="app-bar-inner">
+      <span class="brand">
+        <span class="brand-mark"><svg class="icon" aria-hidden="true"><use href="#i-music"></use></svg></span>
+        <span translate="no">Deezer Mix</span>
+      </span>
+      <span id="sync-badge" class="status-badge" data-state="busy">Chargement…</span>
+    </div>
+  </header>
+
+  <main id="contenu" class="workspace" tabindex="-1">
+    <section class="mix-panel" aria-labelledby="mix-title">
+      <div class="mix-head">
+        <h1 id="mix-title">Mix courant</h1>
+        <span id="mix-count" class="count">0 titre</span>
       </div>
-      <p id="status-message" class="status">Chargement de l'etat courant...</p>
+      <p class="hint">La playlist cible sur Deezer, dans l’ordre publié.</p>
+      <ol id="mix-list" class="mix-list" translate="no"></ol>
     </section>
 
-    <section class="grid">
-      <article class="panel panel-mix">
-        <div class="panel-header">
-          <h2>Mix courant</h2>
-          <span id="mix-count" class="badge">0 titres</span>
-        </div>
-        <ol id="mix-list" class="track-list"></ol>
-      </article>
+    <section class="playlists" aria-labelledby="playlists-title">
+      <h2 id="playlists-title">Playlists</h2>
+      <div class="player-cards">
+        <article class="player-card" data-player="player1">
+          <div class="player-head">
+            <h3 class="player-name"><span class="player-dot" aria-hidden="true"></span><span data-role="name" translate="no">Playlist 1</span></h3>
+            <button class="button button-secondary button-small" type="button" data-action="refresh" data-player="player1" data-busy-label="Rafraîchissement…" aria-label="Rafraîchir Playlist 1">
+              <svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg><span data-role="label">Rafraîchir</span>
+            </button>
+          </div>
+          <p class="player-meta" data-role="meta">Aucun titre chargé.</p>
+          <details class="player-tracks">
+            <summary>Voir les titres<svg class="icon caret" aria-hidden="true"><use href="#i-caret"></use></svg></summary>
+            <ul class="track-list" data-role="tracks" translate="no"></ul>
+          </details>
+        </article>
+        <article class="player-card" data-player="player2">
+          <div class="player-head">
+            <h3 class="player-name"><span class="player-dot" aria-hidden="true"></span><span data-role="name" translate="no">Playlist 2</span></h3>
+            <button class="button button-secondary button-small" type="button" data-action="refresh" data-player="player2" data-busy-label="Rafraîchissement…" aria-label="Rafraîchir Playlist 2">
+              <svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg><span data-role="label">Rafraîchir</span>
+            </button>
+          </div>
+          <p class="player-meta" data-role="meta">Aucun titre chargé.</p>
+          <details class="player-tracks">
+            <summary>Voir les titres<svg class="icon caret" aria-hidden="true"><use href="#i-caret"></use></svg></summary>
+            <ul class="track-list" data-role="tracks" translate="no"></ul>
+          </details>
+        </article>
+        <article class="player-card" data-player="player3">
+          <div class="player-head">
+            <h3 class="player-name"><span class="player-dot" aria-hidden="true"></span><span data-role="name" translate="no">Playlist 3</span></h3>
+            <button class="button button-secondary button-small" type="button" data-action="refresh" data-player="player3" data-busy-label="Rafraîchissement…" aria-label="Rafraîchir Playlist 3">
+              <svg class="icon" aria-hidden="true"><use href="#i-refresh"></use></svg><span data-role="label">Rafraîchir</span>
+            </button>
+          </div>
+          <p class="player-meta" data-role="meta">Aucun titre chargé.</p>
+          <details class="player-tracks">
+            <summary>Voir les titres<svg class="icon caret" aria-hidden="true"><use href="#i-caret"></use></svg></summary>
+            <ul class="track-list" data-role="tracks" translate="no"></ul>
+          </details>
+        </article>
+      </div>
+    </section>
 
-      <article class="panel">
-        <div class="panel-header">
-          <h2>Selections par joueur</h2>
+    <details class="advanced">
+      <summary>Avancé<svg class="icon caret" aria-hidden="true"><use href="#i-caret"></use></svg></summary>
+      <div class="advanced-body">
+        <p>Recharge les trois playlists depuis Deezer, puis régénère et republie le mix. Utile quand une playlist source a beaucoup changé.</p>
+        <button id="reset-button" class="button button-secondary" type="button">
+          <svg class="icon" aria-hidden="true"><use href="#i-reset"></use></svg><span>Réinitialiser…</span>
+        </button>
+        <div id="reset-confirm" class="confirm" hidden>
+          <p id="reset-confirm-text">Tout recharger depuis Deezer et republier la playlist cible ?</p>
+          <div class="button-row">
+            <button id="reset-confirm-button" class="button button-danger" type="button" data-busy-label="Rechargement…" aria-describedby="reset-confirm-text"><span data-role="label">Oui, tout recharger</span></button>
+            <button id="reset-cancel-button" class="button button-secondary" type="button">Annuler</button>
+          </div>
         </div>
-        <div class="players">
-          <section class="player-card">
-            <div class="player-header">
-              <h3 id="player1-title">Joueur 1</h3>
-              <span id="player1-count" class="player-count">0 titres charges</span>
-            </div>
-            <ul id="player1-list" class="track-list compact"></ul>
-          </section>
-          <section class="player-card">
-            <div class="player-header">
-              <h3 id="player2-title">Joueur 2</h3>
-              <span id="player2-count" class="player-count">0 titres charges</span>
-            </div>
-            <ul id="player2-list" class="track-list compact"></ul>
-          </section>
-          <section class="player-card">
-            <div class="player-header">
-              <h3 id="player3-title">Joueur 3</h3>
-              <span id="player3-count" class="player-count">0 titres charges</span>
-            </div>
-            <ul id="player3-list" class="track-list compact"></ul>
-          </section>
-        </div>
-      </article>
+      </div>
+    </details>
+
+    <section class="controls" aria-label="Actions">
+      <p id="status-message" class="notice" role="status" aria-live="polite" hidden></p>
+      <div class="controls-row">
+        <label class="toggle">
+          <input id="balanced-toggle" class="switch" type="checkbox" role="switch" aria-describedby="balanced-hint">
+          <span class="toggle-text">
+            <span class="toggle-title">Mode équitable</span>
+            <span id="balanced-hint" class="toggle-hint">Autant de titres de chaque playlist</span>
+          </span>
+        </label>
+        <button id="generate-button" class="button button-primary" type="button" data-busy-label="Génération…">
+          <svg class="icon" aria-hidden="true"><use href="#i-shuffle"></use></svg><span data-role="label">Générer un nouveau mix</span>
+        </button>
+      </div>
     </section>
   </main>
 
