@@ -4,7 +4,9 @@
 #
 #   ./deploy.sh <tag>       deploie le tag demande (SHA de commit, ou `latest`)
 #   ./deploy.sh             redeploie le tag actuellement enregistre
-#   ./deploy.sh --rollback  revient au tag deploye precedemment, avec sa compose
+#   ./deploy.sh --rollback  revient au tag deploye precedemment, avec sa compose.
+#                           La version quittee n'est pas retenue : un second
+#                           --rollback est refuse, `./deploy.sh <tag>` y revient.
 #
 #   --ghcr-token-stdin, en premier argument : lit sur stdin le jeton ghcr que
 #   la CI transmet (son GITHUB_TOKEN ephemere, avec GHCR_USER dans l'env).
@@ -63,6 +65,15 @@ read_env_key() {
   sed -n "s/^${key}=//p" "$ENV_FILE" | tail -n 1
 }
 
+# --- suppression d'une cle du .env ---------------------------------------------
+delete_env_key() {
+  local key="$1" tmp
+  tmp="$(mktemp "${ENV_FILE}.XXXXXX")"
+  grep -v "^${key}=" "$ENV_FILE" > "$tmp" || true
+  chmod --reference="$ENV_FILE" "$tmp"
+  mv "$tmp" "$ENV_FILE"
+}
+
 # --- ecriture idempotente d'une cle dans le .env ------------------------------
 write_env_key() {
   local key="$1" value="$2" tmp
@@ -85,21 +96,24 @@ current_tag="$(read_env_key DEEZER_IMAGE_TAG)"
 previous_tag="$(read_env_key DEEZER_PREVIOUS_IMAGE_TAG)"
 rollback=0
 
-case "${1:-}" in
-  --rollback)
-    [ -n "$previous_tag" ] || fail "aucun tag precedent enregistre, rollback impossible"
-    target_tag="$previous_tag"
-    rollback=1
-    log "rollback demande vers $target_tag"
-    ;;
-  "")
-    [ -n "$current_tag" ] || fail "aucun tag enregistre et aucun tag fourni en argument"
-    target_tag="$current_tag"
-    ;;
-  *)
-    target_tag="$1"
-    ;;
-esac
+if [ "$#" -eq 0 ]; then
+  [ -n "$current_tag" ] || fail "aucun tag enregistre et aucun tag fourni en argument"
+  target_tag="$current_tag"
+elif [ "$1" = --rollback ]; then
+  [ -n "$previous_tag" ] \
+    || fail "aucun tag precedent enregistre, rollback impossible : redeployer une version precise avec ./deploy.sh <tag>"
+  target_tag="$previous_tag"
+  rollback=1
+  log "rollback demande vers $target_tag"
+else
+  target_tag="$1"
+fi
+
+# Grammaire d'un tag docker. Le tag vient d'une saisie (workflow_dispatch) et
+# finit dans .env et dans des commandes : une quote ou un saut de ligne les
+# casserait.
+[[ "$target_tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] \
+  || fail "tag invalide : '$target_tag' (attendu : SHA de commit ou latest)"
 
 log "tag cible      : $target_tag"
 log "tag courant    : ${current_tag:-<aucun>}"
@@ -158,6 +172,10 @@ restore_previous_config() {
   if [ -n "$current_tag" ]; then
     log "restauration du tag $current_tag dans $ENV_FILE"
     write_env_key DEEZER_IMAGE_TAG "$current_tag"
+  else
+    # Premier deploiement : aucun tag a restaurer, mais celui de la version
+    # ratee ne doit pas rester, le suivant la retiendrait pour le rollback.
+    delete_env_key DEEZER_IMAGE_TAG
   fi
 }
 
@@ -231,7 +249,13 @@ if [ "$health_state" != healthy ]; then
 fi
 
 # --- succes : on memorise la version precedente pour le rollback ---------------
-if [ -n "$current_tag" ] && [ "$current_tag" != "$target_tag" ]; then
+if [ "$rollback" = 1 ]; then
+  # La version quittee est jugee mauvaise : pas de retour implicite par un
+  # second --rollback. Son image reste jusqu'au prochain deploiement, pour un
+  # `./deploy.sh <tag>` explicite.
+  delete_env_key DEEZER_PREVIOUS_IMAGE_TAG
+  rm -f "$PREVIOUS_COMPOSE"
+elif [ -n "$current_tag" ] && [ "$current_tag" != "$target_tag" ]; then
   write_env_key DEEZER_PREVIOUS_IMAGE_TAG "$current_tag"
   if [ -n "$running_compose" ]; then
     cp "$running_compose" "$PREVIOUS_COMPOSE"

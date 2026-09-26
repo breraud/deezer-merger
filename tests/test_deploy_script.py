@@ -193,6 +193,50 @@ class DeployScriptTests(unittest.TestCase):
         self.assertNotIn("v1 remis en service", result.stderr)
         self.assertIn("non sain", result.stderr)
 
+    def test_failed_first_deploy_leaves_no_tag_behind(self) -> None:
+        """Sans version precedente, rien a restaurer : le tag de la version
+        ratee ne doit pas rester, sinon le deploiement suivant la retiendrait
+        comme version de rollback."""
+        (self.deploy_dir / ".env").write_text("DEEZER_ARL=arl\n")
+        self.env["FAKE_UNHEALTHY_TAGS"] = "v2"
+
+        result = self.run_deploy("v2")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIsNone(self.env_value("DEEZER_IMAGE_TAG"))
+        self.assertEqual(self.env_value("DEEZER_ARL"), "arl")
+
+    def test_second_rollback_is_refused_instead_of_returning_to_the_left_version(self) -> None:
+        """Un rollback quitte une version jugee mauvaise : un second --rollback
+        ne doit pas y revenir sans qu'on le demande explicitement."""
+        (self.deploy_dir / ".env").write_text("DEEZER_IMAGE_TAG=v2\nDEEZER_PREVIOUS_IMAGE_TAG=v1\n")
+        (self.deploy_dir / "docker-compose.yml").write_text("compose v2\n")
+        (self.deploy_dir / "docker-compose.previous.yml").write_text("compose v1\n")
+        (self.state / "running").write_text("v2\n")
+
+        first = self.run_deploy("--rollback")
+        second = self.run_deploy("--rollback")
+
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertNotEqual(second.returncode, 0)
+        self.assertEqual(self.running_tag(), "v1")
+        self.assertIsNone(self.env_value("DEEZER_PREVIOUS_IMAGE_TAG"))
+        self.assertFalse((self.deploy_dir / "docker-compose.previous.yml").exists())
+        self.assertIn("./deploy.sh <tag>", second.stderr)
+
+    def test_invalid_tag_is_refused_before_anything_changes(self) -> None:
+        """Le tag vient d'une saisie (workflow_dispatch) et finit dans .env :
+        une quote ou un saut de ligne casserait la commande ou le fichier."""
+        for tag in ("v2'; touch pwned; '", "v2\nDEEZER_ARL=vole", "", "-v2"):
+            with self.subTest(tag=tag):
+                result = self.run_deploy(tag) if tag else self.run_deploy("--ghcr-token-stdin", "")
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self.running_tag(), "v1")
+                self.assertEqual(
+                    (self.deploy_dir / ".env").read_text(), "DEEZER_ARL=arl\nDEEZER_IMAGE_TAG=v1\n"
+                )
+
     # --- compose ------------------------------------------------------------------
 
     def test_new_compose_goes_live_with_the_new_version(self) -> None:

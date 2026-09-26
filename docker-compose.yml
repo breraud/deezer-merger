@@ -21,9 +21,14 @@ services:
     environment:
       STATE_FILE_PATH: /app/state.json
     volumes:
-      # Un fichier : deploy.sh verifie qu'il existe, sinon docker creerait un
-      # repertoire a sa place.
-      - ./state.json:/app/state.json
+      # Un fichier qui doit exister : sans create_host_path: false, docker
+      # creerait un repertoire a sa place, meme lors d'un `docker compose up`
+      # lance a la main (deploy.sh le verifie aussi).
+      - type: bind
+        source: ./state.json
+        target: /app/state.json
+        bind:
+          create_host_path: false
     networks:
       - proxy
     healthcheck:
@@ -38,6 +43,9 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+      # Sondes rapprochees au demarrage : Traefik ne route vers le conteneur
+      # qu'une fois sain, c'est la duree de la coupure a chaque deploiement.
+      start_interval: 2s
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.deezer.rule=Host(`deezer.beraud.dev`)"

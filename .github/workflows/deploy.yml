@@ -118,13 +118,28 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      - name: Validate image tag
+        # Saisi a la main lors d'un redeploiement, le tag finit dans une
+        # commande distante et dans le .env du VPS (deploy.sh le verifie
+        # aussi). On n'affiche pas la valeur refusee dans le log.
+        run: |
+          [[ "$IMAGE_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] \
+            || { echo "::error::image_tag invalide (attendu : SHA de commit ou latest)"; exit 1; }
+
       - name: Configure SSH
+        env:
+          # Passes par l'environnement, pas interpoles dans le script.
+          SSH_KEY: ${{ secrets.DEEZER_SSH_KEY }}
+          # Empreinte du VPS figee (ssh-keyscan verifie contre un known_hosts
+          # de confiance) : un serveur usurpe est refuse au lieu d'etre cru.
+          KNOWN_HOSTS: ${{ secrets.DEEZER_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
           install -m 700 -d ~/.ssh
-          printf '%s\n' "${{ secrets.DEEZER_SSH_KEY }}" > ~/.ssh/deploy_key
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
 
       - name: Upload compose file and deploy script
         run: |
