@@ -1,15 +1,49 @@
+# Stack de production (VPS /opt/deezer-merger).
+#
+# L'image est CONSTRUITE PAR LA CI et poussee sur ghcr.io : le VPS ne build
+# rien et ne contient aucune source. Le deploiement se resume a
+# `deploy.sh <tag>` qui tire le tag demande et recree le conteneur.
+#
+# DEEZER_IMAGE_TAG selectionne la version deployee (SHA de commit, ou
+# `latest`). Un rollback = `./deploy.sh --rollback`.
+#
+# Aucun port publie sur l'hote : Traefik joint le conteneur par le reseau
+# docker externe `proxy` et termine TLS.
+#
+# Developpement local : `uv run uvicorn main:app --reload --port 3457`, pas
+# ce fichier.
 services:
   deezer-app:
-    build:
-      context: .
-    container_name: deezer-mix-refresh
+    image: ghcr.io/breraud/deezer-merger:${DEEZER_IMAGE_TAG:-latest}
     restart: unless-stopped
     env_file:
-      - .env
+      - ./.env
     environment:
       STATE_FILE_PATH: /app/state.json
     volumes:
-      - ./.env:/app/.env:ro
+      # Un fichier : deploy.sh verifie qu'il existe, sinon docker creerait un
+      # repertoire a sa place.
       - ./state.json:/app/state.json
-    ports:
-      - "127.0.0.1:3457:3457"
+    networks:
+      - proxy
+    healthcheck:
+      # Sonde sur / : /api/status peut regenerer le mix et republier la
+      # playlist Deezer. L'image n'a ni curl ni wget : on passe par Python.
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen("http://127.0.0.1:3457/")
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.deezer.rule=Host(`deezer.beraud.dev`)"
+      - "traefik.http.services.deezer.loadbalancer.server.port=3457"
+      - "traefik.docker.network=proxy"
+
+networks:
+  proxy:
+    external: true
