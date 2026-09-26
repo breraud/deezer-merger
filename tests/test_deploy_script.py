@@ -19,8 +19,8 @@ IMAGE_REPO = "ghcr.io/breraud/deezer-merger"
 # Faux client docker. `compose up` memorise le tag et la compose demarres dans
 # $FAKE_STATE ; FAKE_MISSING_TAG fait echouer le pull de ce tag ;
 # FAKE_UNHEALTHY_TAGS rend le conteneur malade quand l'un de ces tags tourne ;
-# FAKE_IMAGE_TAGS liste les tags presents sur l'hote ; `image rm` note l'image
-# supprimee. `login` range le jeton recu sur stdin dans la config docker
+# FAKE_IMAGE_TAGS liste les tags presents sur l'hote (`image ls` et
+# `image inspect`) ; `image rm` note l'image supprimee ; chaque pull est note. `login` range le jeton recu sur stdin dans la config docker
 # courante, comme le vrai client.
 FAKE_DOCKER = r"""#!/usr/bin/env bash
 set -eu
@@ -36,7 +36,8 @@ case "$1 ${2:-}" in
     if [ -n "${FAKE_REQUIRED_TOKEN:-}" ]; then
       [ "$(cat "$(config_dir)/fake-auth" 2>/dev/null)" = "$FAKE_REQUIRED_TOKEN" ] || exit 1
     fi
-    config_dir > "$FAKE_STATE/pull-config" ;;
+    config_dir > "$FAKE_STATE/pull-config"
+    tag >> "$FAKE_STATE/pulls" ;;
   "compose up")
     tag > "$FAKE_STATE/running"
     cat "$DEPLOY_DIR/docker-compose.yml" > "$FAKE_STATE/running-compose" ;;
@@ -51,6 +52,11 @@ case "$1 ${2:-}" in
     for t in ${FAKE_IMAGE_TAGS:-}; do echo "$t"; done ;;
   "image rm")
     echo "$3" >> "$FAKE_STATE/removed" ;;
+  "image inspect")
+    case " ${FAKE_IMAGE_TAGS:-} " in
+      *" ${3##*:} "*) exit 0 ;;
+      *) exit 1 ;;
+    esac ;;
 esac
 exit 0
 """
@@ -284,6 +290,29 @@ class DeployScriptTests(unittest.TestCase):
         self.run_deploy("v2")
 
         self.assertEqual(self.removed_images(), [])
+
+    def test_rollback_needs_no_registry_when_the_image_is_on_the_host(self) -> None:
+        """Pendant un incident, le rollback ne doit dependre ni d'un jeton ghcr
+        (images privees) ni de la disponibilite du registre."""
+        (self.deploy_dir / ".env").write_text("DEEZER_IMAGE_TAG=v2\nDEEZER_PREVIOUS_IMAGE_TAG=v1\n")
+        (self.state / "running").write_text("v2\n")
+        self.env["FAKE_IMAGE_TAGS"] = "v1 v2"
+        self.env["FAKE_REQUIRED_TOKEN"] = "jeton-que-le-vps-n-a-pas"
+
+        result = self.run_deploy("--rollback")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.running_tag(), "v1")
+        self.assertFalse((self.state / "pulls").exists())
+
+    def test_latest_is_pulled_even_when_present(self) -> None:
+        """`latest` bouge : l'avoir sur l'hote ne dit pas qu'il est a jour."""
+        self.env["FAKE_IMAGE_TAGS"] = "latest"
+
+        result = self.run_deploy("latest")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.state / "pulls").read_text().split(), ["latest"])
 
     # --- jeton ghcr -----------------------------------------------------------------
 

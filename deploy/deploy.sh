@@ -24,7 +24,9 @@
 #   - /opt/deezer-merger/.env        variables Deezer (chmod 600)
 #   - /opt/deezer-merger/state.json  etat applicatif, proprietaire uid 10001
 #   - /opt/deezer-merger/.ghcr.env   GHCR_USER=... / GHCR_TOKEN=... (chmod 600)
-#     seulement si l'image devient privee : elle est publique aujourd'hui.
+#     seulement pour tirer a la main une image absente de l'hote si elle
+#     devient privee (elle est publique aujourd'hui) : la CI fournit son propre
+#     jeton, et --rollback reutilise l'image deja presente.
 
 set -euo pipefail
 
@@ -200,10 +202,17 @@ restore_previous_version() {
   fi
 }
 
-log "pull de l'image..."
-if ! docker compose pull; then
-  restore_previous_config
-  fail "pull de l'image echoue pour le tag $target_tag (tag inexistant ou acces ghcr refuse)"
+# Un tag de commit designe toujours la meme image : deja sur l'hote (cas du
+# rollback), inutile de la retirer, et le rollback ne depend alors ni d'un
+# jeton ghcr ni de la disponibilite du registre. `latest` bouge : toujours tire.
+if [ "$target_tag" != latest ] && docker image inspect "$IMAGE_REPO:$target_tag" >/dev/null 2>&1; then
+  log "image $target_tag deja presente sur l'hote, pas de pull"
+else
+  log "pull de l'image..."
+  if ! docker compose pull; then
+    restore_previous_config
+    fail "pull de l'image echoue pour le tag $target_tag (tag inexistant ou acces ghcr refuse)"
+  fi
 fi
 
 log "recreation du conteneur..."
