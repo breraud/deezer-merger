@@ -12,3 +12,8 @@ dist
 build
 .env
 state.json
+.codex
+tests
+docs
+deploy
+.github
