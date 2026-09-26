@@ -1,4 +1,0 @@
-fastapi
-uvicorn
-deezer-python-gql
-python-dotenv
