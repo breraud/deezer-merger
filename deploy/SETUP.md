@@ -8,14 +8,18 @@ Un push sur `main` declenche `.github/workflows/deploy.yml` :
    validation de `docker-compose.yml`.
 2. **Build** : image `ghcr.io/breraud/deezer-merger:<sha>` (et `:latest`),
    construite sur le runner GitHub.
-3. **Deploiement** : la CI copie `docker-compose.yml` et `deploy/deploy.sh`
-   dans `/opt/deezer-merger` sur le VPS, puis lance
-   `deploy.sh --ghcr-token-stdin <sha>` avec son jeton ghcr ephemere.
-   Le script tire l'image, recree le conteneur, attend le healthcheck et
-   remet la version precedente en service en cas d'echec.
+3. **Deploiement** : la CI depose `docker-compose.yml` sous le nom
+   `docker-compose.next.yml` et `deploy/deploy.sh` dans `/opt/deezer-merger`
+   sur le VPS, puis lance `deploy.sh --ghcr-token-stdin <sha>` avec son jeton
+   ghcr ephemere. Le script installe la nouvelle compose, tire l'image,
+   recree le conteneur et attend le healthcheck. En cas d'echec, il remet en
+   service la version precedente AVEC sa compose, verifie qu'elle est saine
+   et le dit. Apres un succes, il ne garde que l'image active et celle du
+   rollback.
 
 Le VPS ne contient aucune source : seulement `.env`, `state.json`,
-`docker-compose.yml` et `deploy.sh`.
+`docker-compose.yml` (version active), `docker-compose.previous.yml`
+(version precedente, pour le rollback) et `deploy.sh`.
 
 ## Secrets GitHub
 
@@ -40,7 +44,9 @@ touch state.json && sudo chown 10001:10001 state.json
 docker network inspect proxy >/dev/null   # reseau de Traefik, deja present
 ```
 
-Le conteneur tourne en uid 10001 : `state.json` doit lui appartenir.
+Le conteneur tourne en uid 10001 : `state.json` doit lui appartenir, et
+`deploy.sh` refuse de deployer sinon. Apres une edition a la main (`sudo`),
+le rendre a son proprietaire : `sudo chown 10001:10001 state.json`.
 
 ## Operations
 
@@ -48,7 +54,8 @@ Le conteneur tourne en uid 10001 : `state.json` doit lui appartenir.
 # Redeployer un tag deja publie, sans test ni build
 gh workflow run deploy.yml -R breraud/deezer-merger -f image_tag=<sha>
 
-# Revenir a la version precedente
+# Revenir a la version precedente (image et compose). Un second --rollback
+# revient a la version quittee : les deux tags s'echangent.
 ssh debian@beraud.dev /opt/deezer-merger/deploy.sh --rollback
 
 # Etat et logs

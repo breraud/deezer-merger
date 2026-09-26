@@ -130,9 +130,12 @@ jobs:
         run: |
           set -euo pipefail
           # Seuls ces deux fichiers transitent : aucune source applicative.
+          # La compose arrive a cote de celle qui tourne : deploy.sh l'installe
+          # et remet l'ancienne en place si la nouvelle version echoue.
           scp -i ~/.ssh/deploy_key -P "$SSH_PORT" \
-            docker-compose.yml deploy/deploy.sh \
-            "$SSH_USER@$SSH_HOST:$DEPLOY_DIR/"
+            docker-compose.yml "$SSH_USER@$SSH_HOST:$DEPLOY_DIR/docker-compose.next.yml"
+          scp -i ~/.ssh/deploy_key -P "$SSH_PORT" \
+            deploy/deploy.sh "$SSH_USER@$SSH_HOST:$DEPLOY_DIR/deploy.sh"
 
       - name: Pull image and restart service
         env:
