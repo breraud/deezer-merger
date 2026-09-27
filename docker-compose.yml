@@ -29,6 +29,13 @@ services:
         target: /app/state.json
         bind:
           create_host_path: false
+    # Le pilote json-file du daemon ne fait aucune rotation par defaut, et le
+    # disque du VPS est partage : 3 fichiers de 10 Mo au plus.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - proxy
     healthcheck:
