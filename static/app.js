@@ -201,6 +201,11 @@ async function callApi(path, method = "GET") {
   } catch {
     throw new Error("Le serveur est injoignable. Vérifie ta connexion puis réessaie.");
   }
+  if (response.status === 401) {
+    // Session expiree ou mot de passe change : retour a la page de connexion.
+    window.location.assign("/login");
+    throw new Error("Session expirée, redirection vers la connexion…");
+  }
 
   let payload = null;
   try {

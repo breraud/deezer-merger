@@ -79,13 +79,28 @@ ssh debian@beraud.dev 'cd /opt/deezer-merger && docker compose ps && docker comp
 ```
 
 Ne jamais sonder `/api/status` pour verifier le service : cette route peut
-regenerer le mix et republier la playlist Deezer. Utiliser `/`.
+regenerer le mix et republier la playlist Deezer. Utiliser `/login`, seule
+page accessible sans session.
+
+## Mot de passe
+
+L'application est protegee par un mot de passe partage, `APP_PASSWORD` dans
+`.env` (obligatoire : sans lui, le conteneur ne demarre pas et `deploy.sh`
+restaure la version precedente). La session dure 30 jours. Pour le changer :
+
+```bash
+ssh debian@beraud.dev
+cd /opt/deezer-merger && nano .env   # APP_PASSWORD=...
+docker compose up -d                 # recree le conteneur avec le nouveau .env
+```
+
+Changer le mot de passe deconnecte tout le monde.
 
 ## Developpement local
 
 ```bash
 uv sync
-cp .env.example .env   # puis renseigner l'ARL et les playlists
+cp .env.example .env   # puis renseigner l'ARL, les playlists et APP_PASSWORD
 uv run uvicorn main:app --reload --port 3457
 uv run python -m unittest discover -s tests -t .
 ```

@@ -771,6 +771,63 @@ details[open] > summary .caret {
   color: var(--success-text);
 }
 
+/* ---- Connexion ------------------------------------------------------------ */
+
+.login {
+  display: grid;
+  justify-items: center;
+  padding: 48px var(--gutter);
+}
+
+.login-card {
+  display: grid;
+  gap: 20px;
+  width: min(100%, 24rem);
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+}
+
+.login-head {
+  display: grid;
+  gap: 4px;
+}
+
+.login-head h1 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field label {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+/* 1rem minimum : en dessous, Safari iOS zoome sur le champ au focus. */
+.text-input {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  font-size: 1rem;
+}
+
+.text-input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.login-card .button {
+  width: 100%;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

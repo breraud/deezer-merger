@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fbfbfa">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#191918">
+  <meta name="robots" content="noindex">
+  <title>Connexion · Deezer Mix</title>
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="preload" href="/static/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <!-- Icones Phosphor (MIT, voir /static/licenses/Phosphor-MIT.txt), graisse bold. -->
+  <svg xmlns="http://www.w3.org/2000/svg" class="sprite" aria-hidden="true">
+    <symbol id="i-music" viewBox="0 0 256 256"><path d="M215.38,14.54a12,12,0,0,0-10.29-2.18l-128,32A12,12,0,0,0,68,56V159.35A40,40,0,1,0,92,196V113.37l104-26v40A40,40,0,1,0,220,164V24A12,12,0,0,0,215.38,14.54ZM52,212a16,16,0,1,1,16-16A16,16,0,0,1,52,212ZM92,88.63V65.37l104-26V62.63ZM180,180a16,16,0,1,1,16-16A16,16,0,0,1,180,180Z"/></symbol>
+    <symbol id="i-warning" viewBox="0 0 256 256"><path d="M128,20A108,108,0,1,0,236,128,108.12,108.12,0,0,0,128,20Zm0,192a84,84,0,1,1,84-84A84.09,84.09,0,0,1,128,212Zm-12-80V80a12,12,0,0,1,24,0v52a12,12,0,0,1-24,0Zm28,40a16,16,0,1,1-16-16A16,16,0,0,1,144,172Z"/></symbol>
+  </svg>
+
+  <header class="app-bar">
+    <div class="app-bar-inner">
+      <span class="brand">
+        <span class="brand-mark"><svg class="icon" aria-hidden="true"><use href="#i-music"></use></svg></span>
+        <span translate="no">Deezer Mix</span>
+      </span>
+    </div>
+  </header>
+
+  <main class="login">
+    <form class="login-card" method="post" action="/login">
+      <div class="login-head">
+        <h1>Connexion</h1>
+        <p class="hint">Entre le mot de passe du groupe pour accéder au mix.</p>
+      </div>
+
+      <p id="login-error" class="notice" data-tone="error" role="alert" hidden>
+        <svg class="icon" aria-hidden="true"><use href="#i-warning"></use></svg>
+        <span>Mot de passe incorrect.</span>
+      </p>
+
+      <div class="field">
+        <label for="password">Mot de passe</label>
+        <input id="password" class="text-input" name="password" type="password"
+               autocomplete="current-password" required autofocus>
+      </div>
+
+      <button class="button button-primary" type="submit">Se connecter</button>
+    </form>
+  </main>
+
+  <script>
+    // Le serveur renvoie ici avec ?erreur=1 apres un mauvais mot de passe.
+    if (new URLSearchParams(location.search).has("erreur")) {
+      document.querySelector("#login-error").hidden = false;
+      document.querySelector("#password").setAttribute("aria-invalid", "true");
+    }
+  </script>
+</body>
+</html>

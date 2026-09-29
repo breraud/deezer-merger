@@ -39,13 +39,14 @@ services:
     networks:
       - proxy
     healthcheck:
-      # Sonde sur / : /api/status peut regenerer le mix et republier la
-      # playlist Deezer. L'image n'a ni curl ni wget : on passe par Python.
+      # Sonde sur /login, seule page publique : / redirige vers la connexion
+      # et /api/status peut regenerer le mix et republier la playlist Deezer.
+      # L'image n'a ni curl ni wget : on passe par Python.
       test:
         - CMD
         - python
         - -c
-        - import urllib.request; urllib.request.urlopen("http://127.0.0.1:3457/")
+        - import urllib.request; urllib.request.urlopen("http://127.0.0.1:3457/login")
       interval: 30s
       timeout: 5s
       retries: 3

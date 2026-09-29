@@ -1,9 +1,12 @@
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+
+APP_PASSWORD = "mot-de-passe-test"
 
 ENV = {
     "DEEZER_ARL": "arl-token",
@@ -11,7 +14,20 @@ ENV = {
     "PLAYLIST_SOURCE_2": "202",
     "PLAYLIST_SOURCE_3": "303",
     "PLAYLIST_CIBLE": "999",
+    "APP_PASSWORD": APP_PASSWORD,
 }
+
+
+def make_client(app):
+    import httpx
+
+    # https : le cookie de session est Secure, httpx ne le renverrait pas en http.
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://testserver")
+
+
+async def login(client) -> None:
+    response = await client.post("/login", data={"password": APP_PASSWORD})
+    assert response.status_code == 303, response.status_code
 
 
 class MainTests(unittest.IsolatedAsyncioTestCase):
@@ -474,7 +490,6 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_app_auto_loads_deezer_data_when_state_is_empty(self) -> None:
         with patch.dict(os.environ, self.env, clear=True):
-            import httpx
             from main import create_app
 
             class FakeManager:
@@ -507,8 +522,8 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
                     return self.state
 
             manager = FakeManager()
-            transport = httpx.ASGITransport(app=create_app(manager=manager))
-            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            async with make_client(create_app(manager=manager, app_password=APP_PASSWORD)) as client:
+                await login(client)
                 response = await client.get("/api/status")
 
         self.assertTrue(manager.ensure_called)
@@ -517,7 +532,6 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_endpoints_return_status_payload(self) -> None:
         with patch.dict(os.environ, self.env, clear=True):
-            import httpx
             from main import create_app
 
             class FakeManager:
@@ -574,8 +588,8 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
                     }
 
             manager = FakeManager()
-            transport = httpx.ASGITransport(app=create_app(manager=manager))
-            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            async with make_client(create_app(manager=manager, app_password=APP_PASSWORD)) as client:
+                await login(client)
                 response = await client.get("/api/status")
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.json()["mix"], [])
@@ -593,6 +607,135 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
                 response = await client.post("/api/reset")
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.json()["source_pools"]["player1"], ["1"])
+
+
+class StatusOnlyManager:
+    """Manager minimal : ces tests ne portent que sur l'acces aux routes."""
+
+    def __init__(self) -> None:
+        self.status_calls = 0
+        self.generate_calls = 0
+
+    async def get_status(self):
+        self.status_calls += 1
+        return {"mix": [], "players": {}, "source_pools": {}}
+
+    async def generate_mix(self, balanced: bool = False):
+        self.generate_calls += 1
+        return {"mix": [], "players": {}, "source_pools": {}}
+
+
+class AuthTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        # main execute create_app() a l'import : il lui faut un environnement complet.
+        with patch.dict(os.environ, ENV, clear=True):
+            import main
+        self.main = main
+        self.manager = StatusOnlyManager()
+
+    def client(self, password: str = APP_PASSWORD):
+        return make_client(self.main.create_app(manager=self.manager, app_password=password))
+
+    async def test_settings_require_app_password(self) -> None:
+        env = {key: value for key, value in ENV.items() if key != "APP_PASSWORD"}
+        # Sans ce patch, un APP_PASSWORD du .env local ferait passer le test.
+        with patch.dict(os.environ, env, clear=True), patch.object(self.main, "load_dotenv"):
+            with self.assertRaisesRegex(ValueError, "APP_PASSWORD"):
+                self.main.Settings.from_env()
+
+    async def test_settings_read_app_password(self) -> None:
+        with patch.dict(os.environ, ENV, clear=True):
+            settings = self.main.Settings.from_env()
+
+        self.assertEqual(settings.app_password, APP_PASSWORD)
+
+    async def test_create_app_refuses_an_empty_password(self) -> None:
+        with self.assertRaisesRegex(ValueError, "APP_PASSWORD"):
+            self.main.create_app(manager=self.manager, app_password="")
+
+    async def test_index_redirects_to_login_without_session(self) -> None:
+        async with self.client() as client:
+            response = await client.get("/")
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], "/login")
+
+    async def test_api_rejects_requests_without_session(self) -> None:
+        async with self.client() as client:
+            status = await client.get("/api/status")
+            generate = await client.post("/api/generate")
+
+        self.assertEqual(status.status_code, 401)
+        self.assertEqual(generate.status_code, 401)
+        self.assertEqual(self.manager.status_calls, 0)
+        self.assertEqual(self.manager.generate_calls, 0)
+
+    async def test_login_page_and_static_assets_are_public(self) -> None:
+        async with self.client() as client:
+            page = await client.get("/login")
+            stylesheet = await client.get("/static/style.css")
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('type="password"', page.text)
+        self.assertEqual(stylesheet.status_code, 200)
+
+    async def test_wrong_password_is_delayed_and_opens_no_session(self) -> None:
+        with patch.object(self.main, "LOGIN_FAILURE_DELAY_SECONDS", 0.05):
+            async with self.client() as client:
+                started = time.monotonic()
+                response = await client.post("/login", data={"password": "mauvais"})
+                elapsed = time.monotonic() - started
+                status = await client.get("/api/status")
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], "/login?erreur=1")
+        self.assertNotIn("set-cookie", response.headers)
+        self.assertGreaterEqual(elapsed, 0.05)
+        self.assertEqual(status.status_code, 401)
+
+    async def test_correct_password_opens_a_session(self) -> None:
+        async with self.client() as client:
+            response = await client.post("/login", data={"password": APP_PASSWORD})
+            index = await client.get("/")
+            status = await client.get("/api/status")
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], "/")
+        cookie = response.headers["set-cookie"].lower()
+        for attribute in ("deezer_mix_session=", "httponly", "secure", "samesite=lax", "max-age=2592000"):
+            self.assertIn(attribute, cookie)
+        self.assertEqual(index.status_code, 200)
+        self.assertEqual(status.status_code, 200)
+
+    async def test_session_signed_with_another_password_is_rejected(self) -> None:
+        # Couvre aussi le changement d'APP_PASSWORD, qui doit deconnecter tout le monde.
+        token = self.main.make_session_token("ancien-mot-de-passe", int(time.time()) + 3600)
+        async with self.client() as client:
+            client.cookies.set("deezer_mix_session", token)
+            response = await client.get("/api/status")
+
+        self.assertEqual(response.status_code, 401)
+
+    async def test_expired_session_is_rejected(self) -> None:
+        token = self.main.make_session_token(APP_PASSWORD, int(time.time()) - 1)
+        async with self.client() as client:
+            client.cookies.set("deezer_mix_session", token)
+            response = await client.get("/api/status")
+
+        self.assertEqual(response.status_code, 401)
+
+    async def test_non_ascii_session_is_rejected_without_crashing(self) -> None:
+        # compare_digest leve TypeError sur une str non ASCII : ce serait une 500.
+        self.assertFalse(self.main.is_valid_session_token("9999999999.é", APP_PASSWORD))
+        # "²".isdigit() est vrai mais int("²") leve ValueError.
+        self.assertFalse(self.main.is_valid_session_token("²." + "0" * 64, APP_PASSWORD))
+
+    async def test_malformed_session_is_rejected(self) -> None:
+        async with self.client() as client:
+            client.cookies.set("deezer_mix_session", "n-importe-quoi")
+            response = await client.get("/api/status")
+
+        self.assertEqual(response.status_code, 401)
 
 
 if __name__ == "__main__":

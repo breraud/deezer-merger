@@ -1,10 +1,15 @@
+import asyncio
+import hashlib
+import hmac
 import json
 import logging
 import os
 import random
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs
 
 from deezer_client import DeezerClient
 
@@ -24,6 +29,10 @@ PLAYER_ENV_KEYS = {
     "player2": "PLAYLIST_SOURCE_2",
     "player3": "PLAYLIST_SOURCE_3",
 }
+SESSION_COOKIE = "deezer_mix_session"
+SESSION_MAX_AGE_SECONDS = 30 * 24 * 3600
+# Freine les essais en serie sur le mot de passe partage.
+LOGIN_FAILURE_DELAY_SECONDS = 1.0
 
 
 def get_state_file_path() -> Path:
@@ -38,6 +47,7 @@ class Settings:
     deezer_arl: str
     source_playlists: dict[str, str]
     target_playlist: str
+    app_password: str
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -47,6 +57,7 @@ class Settings:
 
         deezer_arl = os.getenv("DEEZER_ARL", "").strip()
         target_playlist = os.getenv("PLAYLIST_CIBLE", "").strip()
+        app_password = os.getenv("APP_PASSWORD", "").strip()
         source_playlists = {
             player_id: os.getenv(env_key, "").strip()
             for player_id, env_key in PLAYER_ENV_KEYS.items()
@@ -57,6 +68,7 @@ class Settings:
             for name, value in {
                 "DEEZER_ARL": deezer_arl,
                 "PLAYLIST_CIBLE": target_playlist,
+                "APP_PASSWORD": app_password,
                 **{env_key: source_playlists[player_id] for player_id, env_key in PLAYER_ENV_KEYS.items()},
             }.items()
             if not value
@@ -68,7 +80,24 @@ class Settings:
             deezer_arl=deezer_arl,
             source_playlists=source_playlists,
             target_playlist=target_playlist,
+            app_password=app_password,
         )
+
+
+def make_session_token(password: str, expires_at: int) -> str:
+    """Jeton `<expiration>.<signature>` : signe avec le mot de passe, il ne
+    survit pas a un changement d'APP_PASSWORD."""
+    signature = hmac.new(password.encode(), f"session:{expires_at}".encode(), hashlib.sha256).hexdigest()
+    return f"{expires_at}.{signature}"
+
+
+def is_valid_session_token(token: str | None, password: str) -> bool:
+    expires_at = (token or "").partition(".")[0]
+    # isascii : "²".isdigit() est vrai mais int("²") leve ValueError.
+    if not (expires_at.isascii() and expires_at.isdigit()) or int(expires_at) <= time.time():
+        return False
+    # En octets : sur des str, compare_digest leve TypeError si le cookie n'est pas ASCII.
+    return hmac.compare_digest(token.encode(), make_session_token(password, int(expires_at)).encode())
 
 
 def _deduplicate(items: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -311,11 +340,11 @@ class MixManager:
         return self._build_status_payload()
 
 
-def create_app(manager: MixManager | Any | None = None):
+def create_app(manager: MixManager | Any | None = None, app_password: str | None = None):
     from contextlib import asynccontextmanager
 
-    from fastapi import FastAPI, HTTPException
-    from fastapi.responses import FileResponse
+    from fastapi import FastAPI, HTTPException, Request
+    from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
     from fastapi.staticfiles import StaticFiles
 
     if manager is None:
@@ -324,6 +353,9 @@ def create_app(manager: MixManager | Any | None = None):
             settings=settings,
             deezer_client=DeezerClient(arl=settings.deezer_arl),
         )
+        app_password = app_password or settings.app_password
+    if not app_password:
+        raise ValueError("Missing environment variables: APP_PASSWORD")
 
     @asynccontextmanager
     async def lifespan(app: Any):
@@ -333,6 +365,41 @@ def create_app(manager: MixManager | Any | None = None):
 
     app = FastAPI(title="Deezer Mix & Refresh", lifespan=lifespan)
     app.state.manager = manager
+
+    @app.middleware("http")
+    async def require_session(request: Request, call_next: Any) -> Any:
+        # Tout est ferme sauf la page de connexion et ses ressources statiques,
+        # qui ne contiennent aucune donnee (tout passe par /api).
+        path = request.url.path
+        if (
+            path == "/login"
+            or path.startswith("/static/")
+            or is_valid_session_token(request.cookies.get(SESSION_COOKIE), app_password)
+        ):
+            return await call_next(request)
+        if path.startswith("/api/"):
+            return JSONResponse({"detail": "Session expirée, reconnecte-toi."}, status_code=401)
+        return RedirectResponse("/login", status_code=303)
+
+    @app.post("/login", include_in_schema=False)
+    async def login(request: Request) -> RedirectResponse:
+        # Formulaire urlencoded lu a la main : evite la dependance python-multipart.
+        fields = parse_qs((await request.body()).decode("utf-8", "replace"))
+        password = fields.get("password", [""])[0]
+        if not hmac.compare_digest(password.encode(), app_password.encode()):
+            await asyncio.sleep(LOGIN_FAILURE_DELAY_SECONDS)
+            return RedirectResponse("/login?erreur=1", status_code=303)
+
+        response = RedirectResponse("/", status_code=303)
+        response.set_cookie(
+            SESSION_COOKIE,
+            make_session_token(app_password, int(time.time()) + SESSION_MAX_AGE_SECONDS),
+            max_age=SESSION_MAX_AGE_SECONDS,
+            httponly=True,
+            secure=True,
+            samesite="lax",
+        )
+        return response
 
     async def get_manager() -> Any:
         current_manager = app.state.manager
@@ -346,6 +413,10 @@ def create_app(manager: MixManager | Any | None = None):
         @app.get("/", include_in_schema=False)
         async def index() -> FileResponse:
             return FileResponse(STATIC_DIR / "index.html")
+
+        @app.get("/login", include_in_schema=False)
+        async def login_page() -> FileResponse:
+            return FileResponse(STATIC_DIR / "login.html")
 
     @app.get("/api/status")
     async def get_status() -> dict[str, Any]:
