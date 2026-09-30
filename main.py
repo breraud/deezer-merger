@@ -112,6 +112,18 @@ def _deduplicate(items: list[dict[str, str]]) -> list[dict[str, str]]:
     return deduplicated
 
 
+def find_duplicate_tracks(source_pools: dict[str, list[dict[str, str]]]) -> list[dict[str, Any]]:
+    """Titres presents dans plusieurs playlists sources, dans l'ordre de premiere
+    apparition, avec les playlists qui les contiennent."""
+    tracks_by_id: dict[str, dict[str, Any]] = {}
+    for player_id in PLAYER_IDS:
+        for track in source_pools.get(player_id, []):
+            entry = tracks_by_id.setdefault(track["id"], {**track, "players": []})
+            if player_id not in entry["players"]:
+                entry["players"].append(player_id)
+    return [entry for entry in tracks_by_id.values() if len(entry["players"]) > 1]
+
+
 def _default_player_name(player_id: str) -> str:
     return f"Joueur {player_id.removeprefix('player')}"
 
@@ -297,6 +309,7 @@ class MixManager:
             "source_pools": self.state["source_pools"],
             "players": self.state["players"],
             "mix": self.state["mix"],
+            "duplicates": find_duplicate_tracks(self.state["source_pools"]),
         }
 
     def _build_selections(
@@ -322,11 +335,12 @@ class MixManager:
         return min(lengths) if lengths else 0
 
     async def _publish_mix(self, selections: dict[str, list[dict[str, str]]]) -> dict[str, Any]:
-        mixed_tracks = [
+        # Un titre present dans plusieurs selections n'est publie qu'une fois.
+        mixed_tracks = _deduplicate([
             track
             for player_id in PLAYER_IDS
             for track in selections[player_id]
-        ]
+        ])
         self.randomizer.shuffle(mixed_tracks)
         final_track_ids = [track["id"] for track in mixed_tracks]
         await self.deezer_client.update_target_playlist(

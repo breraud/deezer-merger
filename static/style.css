@@ -429,6 +429,53 @@ h2 {
   font-weight: 500;
 }
 
+/* ---- Doublons ------------------------------------------------------------- */
+
+.duplicates {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+}
+
+.duplicates-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.duplicates-title .icon {
+  color: var(--accent);
+}
+
+.duplicate-list {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Mobile : les pastilles passent sous le titre pour lui laisser la largeur. */
+.duplicate-item {
+  display: grid;
+  gap: 6px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.source-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* Dans le mix, les pastilles s'empilent : la colonne garde la largeur d'une seule. */
+.mix-item .source-chips {
+  flex-direction: column;
+  align-items: flex-end;
+}
+
 /* ---- Playlists ------------------------------------------------------------- */
 
 .playlists {
@@ -853,6 +900,12 @@ details[open] > summary .caret {
   .mix-panel {
     padding: 24px 24px 8px;
   }
+
+  .duplicate-item {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+  }
 }
 
 /* ---- Bureau : deux colonnes ------------------------------------------------ */
@@ -878,6 +931,21 @@ details[open] > summary .caret {
     align-items: start;
     gap: 16px 32px;
     padding-block: 32px 48px;
+  }
+
+  /* Le panneau n'ajoute sa ligne que s'il est affiche : une ligne vide garderait
+     l'espacement de la grille en haut de page. */
+  .workspace:has(> .duplicates:not([hidden])) {
+    grid-template-areas:
+      "duplicates duplicates"
+      "controls mix"
+      "playlists mix"
+      "advanced mix";
+    grid-template-rows: auto auto auto 1fr;
+  }
+
+  .duplicates {
+    grid-area: duplicates;
   }
 
   .controls {

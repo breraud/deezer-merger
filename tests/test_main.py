@@ -310,6 +310,64 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(payload["mix"]), 9)
         deezer_client.update_target_playlist.assert_awaited_once_with("999", [track["id"] for track in payload["mix"]])
 
+    async def test_generate_mix_publishes_a_track_shared_by_two_playlists_only_once(self) -> None:
+        with patch.dict(os.environ, self.env, clear=True):
+            from main import MixManager, Settings
+
+            deezer_client = AsyncMock()
+            manager = MixManager(settings=Settings.from_env(), deezer_client=deezer_client)
+            manager.state["source_pools"] = {
+                "player1": [self.make_track("1"), self.make_track("2")],
+                "player2": [self.make_track("2"), self.make_track("3")],
+                "player3": [self.make_track("4")],
+            }
+
+            payload = await manager.generate_mix(balanced=False)
+
+        published_ids = [track["id"] for track in payload["mix"]]
+        self.assertEqual(sorted(published_ids), ["1", "2", "3", "4"])
+        deezer_client.update_target_playlist.assert_awaited_once_with("999", published_ids)
+        # Chaque playlist garde le titre partage dans sa selection.
+        self.assertEqual([track["id"] for track in payload["players"]["player1"]["selection"]], ["1", "2"])
+        self.assertEqual([track["id"] for track in payload["players"]["player2"]["selection"]], ["2", "3"])
+
+    async def test_status_payload_lists_tracks_shared_by_several_playlists(self) -> None:
+        with patch.dict(os.environ, self.env, clear=True):
+            from main import MixManager, Settings
+
+            manager = MixManager(settings=Settings.from_env(), deezer_client=AsyncMock())
+            manager.state["source_pools"] = {
+                "player1": [self.make_track("1"), self.make_track("2"), self.make_track("5")],
+                "player2": [self.make_track("5"), self.make_track("2"), self.make_track("3")],
+                "player3": [self.make_track("4"), self.make_track("5")],
+            }
+
+            payload = await manager.generate_mix(balanced=False)
+
+        # Dans l'ordre de premiere apparition, playlists dans l'ordre des joueurs.
+        self.assertEqual(
+            payload["duplicates"],
+            [
+                {**self.make_track("2"), "players": ["player1", "player2"]},
+                {**self.make_track("5"), "players": ["player1", "player2", "player3"]},
+            ],
+        )
+
+    async def test_status_payload_has_no_duplicates_when_playlists_do_not_overlap(self) -> None:
+        with patch.dict(os.environ, self.env, clear=True):
+            from main import MixManager, Settings
+
+            manager = MixManager(settings=Settings.from_env(), deezer_client=AsyncMock())
+            manager.state["source_pools"] = {
+                "player1": [self.make_track("1")],
+                "player2": [self.make_track("2")],
+                "player3": [self.make_track("3")],
+            }
+
+            payload = await manager.generate_mix(balanced=False)
+
+        self.assertEqual(payload["duplicates"], [])
+
     async def test_generate_mix_balanced_samples_using_smallest_playlist_size(self) -> None:
         with patch.dict(os.environ, self.env, clear=True):
             from main import MixManager, Settings

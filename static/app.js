@@ -9,6 +9,10 @@ const syncBadge = document.querySelector("#sync-badge");
 const statusMessage = document.querySelector("#status-message");
 const mixList = document.querySelector("#mix-list");
 const mixCount = document.querySelector("#mix-count");
+const duplicatesPanel = document.querySelector("#duplicates");
+const duplicatesTitle = duplicatesPanel.querySelector('[data-role="title"]');
+const duplicatesHint = duplicatesPanel.querySelector('[data-role="hint"]');
+const duplicateList = document.querySelector("#duplicate-list");
 const balancedToggle = document.querySelector("#balanced-toggle");
 const generateButton = document.querySelector("#generate-button");
 const resetButton = document.querySelector("#reset-button");
@@ -92,19 +96,55 @@ function hideNotice() {
 
 // --- rendu -------------------------------------------------------------------
 
-// La playlist d'origine d'un titre : d'abord la selection publiee, puis le
-// cache des sources (un titre peut figurer dans plusieurs playlists).
-function buildSourceIndex(players, sourcePools) {
+function indexOwners(listsByPlayer) {
   const index = new Map();
-  for (const lists of [players, sourcePools]) {
-    for (const playerId of PLAYER_IDS) {
-      const list = lists === players ? players[playerId]?.selection : sourcePools[playerId];
-      for (const track of list || []) {
-        if (track?.id && !index.has(track.id)) index.set(track.id, playerId);
-      }
+  for (const playerId of PLAYER_IDS) {
+    for (const track of listsByPlayer[playerId] || []) {
+      if (!track?.id) continue;
+      const owners = index.get(track.id) || [];
+      if (!owners.includes(playerId)) owners.push(playerId);
+      index.set(track.id, owners);
     }
   }
   return index;
+}
+
+// Les playlists d'origine d'un titre : les selections publiees, a defaut le
+// cache des sources. Un titre partage n'est qu'une fois dans le mix, avec
+// toutes ses playlists.
+function buildSourceIndex(players, sourcePools) {
+  const selections = Object.fromEntries(PLAYER_IDS.map((playerId) => [playerId, players[playerId]?.selection]));
+  const index = indexOwners(sourcePools);
+  for (const [trackId, owners] of indexOwners(selections)) index.set(trackId, owners);
+  return index;
+}
+
+function sourceChips(playerIds) {
+  const chips = el("span", "source-chips");
+  for (const playerId of playerIds) {
+    const chip = el("span", "source-chip", playerNames[playerId]);
+    chip.dataset.source = playerId;
+    chips.appendChild(chip);
+  }
+  return chips;
+}
+
+function renderDuplicates(duplicates) {
+  duplicatesPanel.hidden = duplicates.length === 0;
+  duplicatesTitle.textContent = `${plural(duplicates.length, "titre")} dans plusieurs playlists`;
+  duplicatesHint.textContent = duplicates.length > 1
+    ? "Ils ne figurent qu’une fois dans le mix."
+    : "Il ne figure qu’une fois dans le mix.";
+  duplicateList.replaceChildren(
+    ...duplicates.map((track) => {
+      const item = el("li", "duplicate-item");
+      const body = el("span", "track");
+      body.appendChild(el("span", "track-title", trackTitle(track)));
+      body.appendChild(el("span", "track-artist", trackArtist(track)));
+      item.append(body, sourceChips(track.players || []));
+      return item;
+    }),
+  );
 }
 
 function renderMix(mix, sourceIndex, hasLoadedSources) {
@@ -133,36 +173,28 @@ function renderMix(mix, sourceIndex, hasLoadedSources) {
     body.appendChild(el("span", "track-title", trackTitle(track)));
     body.appendChild(el("span", "track-artist", trackArtist(track)));
     item.appendChild(body);
-    const source = sourceIndex.get(track.id);
-    if (source) {
-      const chip = el("span", "source-chip", playerNames[source]);
-      chip.dataset.source = source;
-      item.appendChild(chip);
-    }
+    const sources = sourceIndex.get(track.id);
+    if (sources) item.appendChild(sourceChips(sources));
     return item;
   });
   mixList.replaceChildren(...items);
 }
 
-function renderPlayers(players, sourcePools, mix, sourceIndex) {
-  const inMix = Object.fromEntries(PLAYER_IDS.map((playerId) => [playerId, 0]));
-  for (const track of mix) {
-    const source = sourceIndex.get(track.id);
-    if (source) inMix[source] += 1;
-  }
-
+function renderPlayers(players, sourcePools) {
   for (const playerId of PLAYER_IDS) {
     const card = cards[playerId];
     const pool = sourcePools[playerId] || [];
     const name = players[playerId]?.name || playerNames[playerId];
     playerNames[playerId] = name;
+    // La selection publiee : un titre partage compte pour chacune de ses playlists.
+    const inMix = players[playerId]?.selection?.length ?? 0;
 
     card.name.textContent = name;
     card.button.setAttribute("aria-label", `Rafraîchir ${name}`);
     card.meta.textContent =
       pool.length === 0
         ? "Aucun titre chargé."
-        : `${plural(inMix[playerId], "titre")} dans le mix sur ${pool.length} chargé${pool.length > 1 ? "s" : ""}`;
+        : `${plural(inMix, "titre")} dans le mix sur ${pool.length} chargé${pool.length > 1 ? "s" : ""}`;
 
     if (pool.length === 0) {
       card.tracks.replaceChildren(el("li", "empty", "Aucun titre chargé."));
@@ -186,8 +218,9 @@ function renderState(payload) {
   const hasLoadedSources = PLAYER_IDS.some((playerId) => (sourcePools[playerId] || []).length > 0);
   const sourceIndex = buildSourceIndex(players, sourcePools);
 
-  // Les noms d'abord : les pastilles du mix les reprennent.
-  renderPlayers(players, sourcePools, mix, sourceIndex);
+  // Les noms d'abord : les pastilles des doublons et du mix les reprennent.
+  renderPlayers(players, sourcePools);
+  renderDuplicates(payload.duplicates || []);
   renderMix(mix, sourceIndex, hasLoadedSources);
   return hasLoadedSources;
 }

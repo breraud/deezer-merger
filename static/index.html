@@ -39,6 +39,14 @@
   <main id="contenu" class="workspace" tabindex="-1">
     <h1 class="visually-hidden">Deezer Mix</h1>
 
+    <section id="duplicates" class="duplicates" aria-labelledby="duplicates-title" hidden>
+      <h2 id="duplicates-title" class="duplicates-title">
+        <svg class="icon" aria-hidden="true"><use href="#i-warning"></use></svg><span data-role="title">Titres dans plusieurs playlists</span>
+      </h2>
+      <p class="hint" data-role="hint">Ils ne figurent qu’une fois dans le mix.</p>
+      <ul id="duplicate-list" class="duplicate-list" translate="no"></ul>
+    </section>
+
     <section class="playlists" aria-labelledby="playlists-title">
       <h2 id="playlists-title">Playlists</h2>
       <div class="player-cards">
