@@ -3,8 +3,10 @@ const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
 const vm = require('node:vm');
 
-function demo() {
-  const context = { window: {}, URL, structuredClone, Math };
+function demo(random = Math.random) {
+  const math = Object.create(Math);
+  math.random = random;
+  const context = { window: {}, URL, structuredClone, Math: math };
   vm.runInNewContext(readFileSync('static/demo.js', 'utf8'), context);
   return context.window.createDemo();
 }
@@ -38,5 +40,22 @@ test('reset restores full selections, and separate demos do not share state', as
   const reset = await client.call('/api/reset', 'POST');
   for (const state of [independent, reset]) {
     assert.ok(players.every(id => state.players[id].selection.length === state.source_pools[id].length));
+  }
+});
+
+test('uses neutral names and randomly sampled example tracks with a deliberate conflict', async () => {
+  const first = await demo(() => 0).call('/api/status');
+  const second = await demo(() => 0.99).call('/api/status');
+  for (const [index, id] of players.entries()) {
+    assert.equal(first.players[id].name, `Playlist ${index + 1}`);
+  }
+  assert.notDeepEqual(first.source_pools.player1, second.source_pools.player1);
+  assert.ok(first.duplicates.length > 0);
+  for (const duplicate of first.duplicates) {
+    assert.ok(duplicate.players.length > 1);
+    assert.equal(first.mix.filter(track => track.id === duplicate.id).length, 1);
+    for (const id of duplicate.players) {
+      assert.ok(first.source_pools[id].some(track => track.id === duplicate.id));
+    }
   }
 });

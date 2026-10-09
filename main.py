@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlsplit
 
 from deezer_client import DeezerClient
 
@@ -358,7 +358,7 @@ def create_app(manager: MixManager | Any | None = None, app_password: str | None
     from contextlib import asynccontextmanager
 
     from fastapi import FastAPI, HTTPException, Request
-    from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+    from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
     from fastapi.staticfiles import StaticFiles
 
     if manager is None:
@@ -385,8 +385,12 @@ def create_app(manager: MixManager | Any | None = None, app_password: str | None
         # Tout est ferme sauf la connexion, la demo et les ressources statiques,
         # qui ne contiennent aucune donnee privee (les vraies donnees passent par /api).
         path = request.url.path
+        # Une ancienne interface en cache ne doit jamais publier depuis la demo,
+        # meme lorsque le navigateur possede deja une session valide.
+        if path.startswith("/api/") and urlsplit(request.headers.get("referer", "")).path.rstrip("/") == "/demo":
+            return JSONResponse({"detail": "Les API réelles sont désactivées dans la démo."}, status_code=403)
         if (
-            path in {"/login", "/demo"}
+            path in {"/login", "/demo", "/demo/"}
             or path.startswith("/static/")
             or is_valid_session_token(request.cookies.get(SESSION_COOKIE), app_password)
         ):
@@ -424,14 +428,37 @@ def create_app(manager: MixManager | Any | None = None, app_password: str | None
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-        @app.get("/demo", include_in_schema=False)
+        def render_page(filename: str, demo: bool = False) -> HTMLResponse:
+            html = (STATIC_DIR / filename).read_text(encoding="utf-8")
+            # Une nouvelle version du contenu a une nouvelle URL : un ancien
+            # app.js deja en cache ne peut pas etre reutilise par la demo.
+            for asset in ("app.js", "demo.js", "style.css"):
+                digest = hashlib.sha256((STATIC_DIR / asset).read_bytes()).hexdigest()[:16]
+                html = html.replace(f'/static/{asset}"', f'/static/{asset}?v={digest}"')
+            headers = {"Cache-Control": "no-store"}
+            if demo:
+                html = html.replace('data-app-mode="live"', 'data-app-mode="demo"')
+                html = html.replace('<title>Deezer Mix</title>', '<title>Démo · Deezer Mix</title>')
+                html = html.replace('data-state="demo" hidden', 'data-state="demo"')
+                html = html.replace('aria-labelledby="demo-title" hidden', 'aria-labelledby="demo-title"')
+                # Le navigateur bloque fetch/XHR avant toute requete reseau,
+                # independamment des cookies ou du JavaScript execute.
+                headers["Content-Security-Policy"] = "connect-src 'none'"
+                headers["Referrer-Policy"] = "same-origin"
+            return HTMLResponse(html, headers=headers)
+
         @app.get("/", include_in_schema=False)
-        async def index() -> FileResponse:
-            return FileResponse(STATIC_DIR / "index.html")
+        async def index() -> HTMLResponse:
+            return render_page("index.html")
+
+        @app.get("/demo", include_in_schema=False)
+        @app.get("/demo/", include_in_schema=False)
+        async def demo_page() -> HTMLResponse:
+            return render_page("index.html", demo=True)
 
         @app.get("/login", include_in_schema=False)
-        async def login_page() -> FileResponse:
-            return FileResponse(STATIC_DIR / "login.html")
+        async def login_page() -> HTMLResponse:
+            return render_page("login.html")
 
     @app.get("/api/status")
     async def get_status() -> dict[str, Any]:

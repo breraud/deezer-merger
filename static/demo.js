@@ -3,31 +3,38 @@
 window.createDemo = function createDemo() {
   const ids = ["player1", "player2", "player3"];
   const track = (id, title, artist) => ({ id, title, artist });
-  const shared = track("demo-shared", "Sous les étoiles", "Les Satellites");
+  // Catalogue local d’exemple : titres connus, aucune playlist utilisateur.
+  const catalog = [
+    ["Get Lucky", "Daft Punk"],
+    ["Lisztomania", "Phoenix"],
+    ["Feel Good Inc.", "Gorillaz"],
+    ["Levitating", "Dua Lipa"],
+    ["Don't Stop Me Now", "Queen"],
+    ["Take On Me", "a-ha"],
+    ["Midnight City", "M83"],
+    ["Blinding Lights", "The Weeknd"],
+    ["Dreams", "Fleetwood Mac"],
+    ["Mr. Brightside", "The Killers"],
+    ["Instant Crush", "Daft Punk"],
+    ["Somebody That I Used to Know", "Gotye"],
+    ["Electric Feel", "MGMT"],
+    ["1901", "Phoenix"],
+    ["Kids", "MGMT"],
+    ["Clint Eastwood", "Gorillaz"],
+    ["Billie Jean", "Michael Jackson"],
+    ["Enjoy the Silence", "Depeche Mode"],
+    ["Wake Me Up", "Avicii"],
+    ["Rolling in the Deep", "Adele"],
+  ].map(([title, artist], index) => track(`demo-${index}`, title, artist));
+  const sampled = shuffle(catalog);
+  // Conflit volontaire : le meme titre appartient aux trois playlists.
+  const shared = sampled[0];
   const pools = {
-    player1: [
-      shared,
-      track("demo-1", "Dernier métro", "Minuit Bleu"),
-      track("demo-2", "Néons", "Les Satellites"),
-      track("demo-3", "La ville s’éveille", "Écho Libre"),
-      track("demo-4", "À contretemps", "Minuit Bleu"),
-      track("demo-5", "Horizon", "Écho Libre"),
-    ],
-    player2: [
-      shared,
-      track("demo-6", "Au grand air", "Les Passagers"),
-      track("demo-7", "Un dimanche", "Camille Rivage"),
-      track("demo-8", "Chemin de traverse", "Les Passagers"),
-    ],
-    player3: [
-      track("demo-9", "Pulsations", "Studio Nova"),
-      track("demo-10", "Après minuit", "Onde Douce"),
-      shared,
-      track("demo-11", "Lumière orange", "Studio Nova"),
-      track("demo-12", "Première vague", "Onde Douce"),
-    ],
+    player1: [shared, ...sampled.slice(1, 6)],
+    player2: [shared, ...sampled.slice(6, 9)],
+    player3: [shared, ...sampled.slice(9, 13)],
   };
-  const names = { player1: "Virée nocturne", player2: "Au grand air", player3: "Électro douce" };
+  const names = { player1: "Playlist 1", player2: "Playlist 2", player3: "Playlist 3" };
   const players = Object.fromEntries(ids.map(id => [id, { name: names[id], selection: [...pools[id]] }]));
   let mix;
 

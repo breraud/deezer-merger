@@ -1024,3 +1024,14 @@ details[open] > summary .caret {
 .demo-banner h2 {
   margin-bottom: 4px;
 }
+
+.app-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-badge[data-state="demo"] {
+  background: var(--accent-soft);
+  color: var(--accent-soft-text);
+}

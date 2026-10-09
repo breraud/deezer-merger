@@ -752,6 +752,34 @@ class AuthTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.manager.status_calls, 0)
         self.assertEqual(self.manager.generate_calls, 0)
 
+    async def test_demo_remains_isolated_with_a_valid_session(self) -> None:
+        async with self.client() as client:
+            await login(client)
+            page = await client.get("/demo")
+            for path in ("/api/status", "/api/generate", "/api/refresh/player1", "/api/reset"):
+                response = await client.request(
+                    "GET" if path == "/api/status" else "POST",
+                    path,
+                    headers={"Referer": "https://testserver/demo"},
+                )
+                self.assertEqual(response.status_code, 403, path)
+
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(page.headers.get("content-security-policy"), "connect-src 'none'")
+        self.assertEqual(page.headers.get("cache-control"), "no-store")
+        self.assertIn('data-app-mode="demo"', page.text)
+        self.assertIn('id="demo-badge" class="status-badge" data-state="demo">Démo', page.text)
+        self.assertRegex(page.text, r'/static/app.js\?v=[a-f0-9]+')
+        self.assertRegex(page.text, r'/static/demo.js\?v=[a-f0-9]+')
+        self.assertEqual(self.manager.status_calls, 0)
+        self.assertEqual(self.manager.generate_calls, 0)
+
+    async def test_demo_with_trailing_slash_is_public(self) -> None:
+        async with self.client() as client:
+            page = await client.get("/demo/", follow_redirects=True)
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('data-app-mode="demo"', page.text)
+
     async def test_login_offers_a_demo_without_password(self) -> None:
         async with self.client() as client:
             page = await client.get("/login")

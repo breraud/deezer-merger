@@ -3,7 +3,7 @@
 // texte.
 
 const PLAYER_IDS = ["player1", "player2", "player3"];
-const isDemo = window.location.pathname === "/demo";
+const isDemo = document.body.dataset.appMode === "demo" || /^\/demo\/?$/.test(window.location.pathname);
 const demo = isDemo ? window.createDemo() : null;
 const BALANCED_STORAGE_KEY = isDemo ? "deezer-mix-demo-balanced" : "deezer-mix-balanced";
 
@@ -287,7 +287,7 @@ async function runAction({ button, path, pending, success }) {
   try {
     const payload = await callApi(path, "POST");
     renderState(payload);
-    setBadge("ok", isDemo ? "Démo" : "À jour");
+    setBadge("ok", "À jour");
     showNotice("success", isDemo ? "Simulation terminée. Le mix de démonstration est à jour." : (typeof success === "function" ? success(payload) : success));
     return true;
   } catch (error) {
@@ -305,7 +305,7 @@ async function loadStatus() {
     const payload = await callApi("/api/status");
     const hasLoadedSources = renderState(payload);
     if (hasLoadedSources) {
-      setBadge("ok", isDemo ? "Démo" : "À jour");
+      setBadge("ok", "À jour");
       hideNotice();
     } else {
       setBadge("idle", "À charger");
@@ -403,6 +403,7 @@ balancedToggle.addEventListener("change", () => {
 if (isDemo) {
   document.title = "Démo · Deezer Mix";
   document.querySelector("#demo-banner").hidden = false;
+  document.querySelector("#demo-badge").hidden = false;
   document.querySelector("h1").textContent = "Démo de Deezer Mix";
   document.querySelector(".mix-panel .hint").textContent = "Le résultat simulé de la fusion des trois playlists.";
   document.querySelector(".advanced-body > p").textContent = "Restaure les playlists fictives et régénère le mix de démonstration.";
