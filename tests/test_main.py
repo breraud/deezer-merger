@@ -737,6 +737,28 @@ class AuthTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('type="password"', page.text)
         self.assertEqual(stylesheet.status_code, 200)
 
+    async def test_demo_is_public_without_opening_a_session(self) -> None:
+        async with self.client() as client:
+            page = await client.get("/demo")
+            status = await client.get("/api/status")
+            generate = await client.post("/api/generate")
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('id="demo-banner"', page.text)
+        self.assertIn('/static/demo.js', page.text)
+        self.assertNotIn("set-cookie", page.headers)
+        self.assertEqual(status.status_code, 401)
+        self.assertEqual(generate.status_code, 401)
+        self.assertEqual(self.manager.status_calls, 0)
+        self.assertEqual(self.manager.generate_calls, 0)
+
+    async def test_login_offers_a_demo_without_password(self) -> None:
+        async with self.client() as client:
+            page = await client.get("/login")
+
+        self.assertIn('href="/demo"', page.text)
+        self.assertIn("Essayer la démo", page.text)
+
     async def test_wrong_password_is_delayed_and_opens_no_session(self) -> None:
         with patch.object(self.main, "LOGIN_FAILURE_DELAY_SECONDS", 0.05):
             async with self.client() as client:

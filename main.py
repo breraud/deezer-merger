@@ -382,11 +382,11 @@ def create_app(manager: MixManager | Any | None = None, app_password: str | None
 
     @app.middleware("http")
     async def require_session(request: Request, call_next: Any) -> Any:
-        # Tout est ferme sauf la page de connexion et ses ressources statiques,
-        # qui ne contiennent aucune donnee (tout passe par /api).
+        # Tout est ferme sauf la connexion, la demo et les ressources statiques,
+        # qui ne contiennent aucune donnee privee (les vraies donnees passent par /api).
         path = request.url.path
         if (
-            path == "/login"
+            path in {"/login", "/demo"}
             or path.startswith("/static/")
             or is_valid_session_token(request.cookies.get(SESSION_COOKIE), app_password)
         ):
@@ -424,6 +424,7 @@ def create_app(manager: MixManager | Any | None = None, app_password: str | None
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
+        @app.get("/demo", include_in_schema=False)
         @app.get("/", include_in_schema=False)
         async def index() -> FileResponse:
             return FileResponse(STATIC_DIR / "index.html")

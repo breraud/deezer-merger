@@ -989,3 +989,38 @@ details[open] > summary .caret {
     overscroll-behavior: contain;
   }
 }
+
+/* ---- Démonstration -------------------------------------------------------- */
+
+.button:is(a) {
+  text-decoration: none;
+}
+
+.login-demo {
+  display: grid;
+  gap: 12px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.demo-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: min(100% - 2 * var(--gutter), 1200px);
+  margin: 20px auto 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--accent-soft);
+}
+
+.demo-banner > div {
+  flex: 1 1 20rem;
+}
+
+.demo-banner h2 {
+  margin-bottom: 4px;
+}
